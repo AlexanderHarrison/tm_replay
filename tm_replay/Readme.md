@@ -21,8 +21,8 @@ There are no icon data stored, the screenshot used in unclepunch is stored elsew
 
 ### Melee outer block format
 
-This file format was previously undocumented.
 Thanks to Cuyler36, Altafen, and Reno in the GameCube decompilation discord for their help in decompilation.
+Without them, reverse engineering this format would have taken 1000x longer.
 
 The raw inner data are separated into blocks of maximum size 8192. 
 The first block always seems to 400 bytes and the rest are all 8192 bytes. 
@@ -34,10 +34,17 @@ The code to encrypt and decrypt these blocks can be found in `obfuscation.c`.
 
 ### Melee inner block format
 
-Each decrypted block in the outer format starts with 16 bytes of metadata.
+Each decrypted block from the outer format starts with 16 bytes of metadata.
 The first 4 bytes is the block index.
 I don't know what the next 12 bytes is, but it's the same for every decrypted block.
 
 Concatenate the rest of the data in the blocks to recover the raw inner data.
 
 ### UnclePunch's format
+
+This can be found in the [https://github.com/UnclePunch/Training-Mode/](repo) under `patch/events/lab/source/lab.c` and `patch/events/lab/source/lab.h`.
+
+1. There is a header `ExportHeader` with some misc data (stage, characters, date, offsets, etc.).
+2. That is followed by the screenshot, which is a 96x72 RGB565 encoded image. This is always 0x3600 bytes.
+3. Then comes the `RecordingSave` struct. This is lz77 compressed. It contains the raw savestate, event data and the inputs.
+4. Finally, added in v2 of the replay file format, comes the menu data `ExportMenuSettings`.

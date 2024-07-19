@@ -7,7 +7,7 @@ pub fn lz77_compress(uncompressed_text: &[u8], uncompressed_size: u32, compresse
     let pointer_length_max = 1 << pointer_length_width;
 
     compressed_text[0..4].copy_from_slice(&uncompressed_size.to_be_bytes());
-    compressed_text[5] = pointer_length_width as u8;
+    compressed_text[4] = pointer_length_width as u8;
     let mut compressed_pointer = 5;
     let mut output_size = 5;
 

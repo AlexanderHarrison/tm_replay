@@ -53,16 +53,16 @@ impl RecordingTime {
     pub fn today_approx() -> RecordingTime {
         use std::time::SystemTime;
 
-        let seconds = SystemTime:now()
+        let seconds = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        let days = seconds / (60 * 60 * 24);
+        let mut days = seconds / (60 * 60 * 24);
 
         let mut year = 1970;
         let mut days_in_year;
-        while (1) {
+        loop {
             days_in_year = 
                 if year % 400 == 0 { 366 }
                 else if year % 100 == 0 { 365 }
@@ -79,8 +79,12 @@ impl RecordingTime {
 
         let month = loop {
             if days >= 31 { days -= 31 } else { break 1 }
-            if days_in_year == 365 && days >= 29 { days -= 29 } else { break 2 }
-            if days_in_year == 366 && days >= 30 { days -= 30 } else { break 2 }
+            if days_in_year == 365 {
+                if days >= 29 { days -= 29 } else { break 2 }
+            }
+            if days_in_year == 366 {
+                if days >= 30 { days -= 30 } else { break 2 }
+            }
             if days >= 31 { days -= 31 } else { break 3 }
             if days >= 30 { days -= 30 } else { break 4 }
             if days >= 31 { days -= 31 } else { break 5 }
@@ -91,14 +95,14 @@ impl RecordingTime {
             if days >= 31 { days -= 31 } else { break 10 }
             if days >= 30 { days -= 30 } else { break 11 }
             break 12
-        }
+        };
 
         days += 1; // one-index the day
 
         RecordingTime {
             year,
             month,
-            day,
+            day: days as u8,
             hour: 0,
             minute: 0,
             second: 0,
@@ -151,18 +155,18 @@ impl RecordingInfo {
         ]);
 
         b.extend_from_slice(&self.filename);
-        b.extend_from_slice(&[0u8; 3]); // 3 bytes padding
+        b.extend_from_slice(&[0u8; 1]); // 1 byte padding
         b.extend_from_slice(&[0u8; 12]); // 3 offsets
     }
     
     fn write_menu_settings(&self, b: &mut Vec<u8>) {
         b.extend_from_slice(&[
-            menu.hmn_mode as u8,
-            menu.hmn_slot as u8,
-            menu.cpu_mode as u8,
-            menu.cpu_slot as u8,
-            menu.loop_inputs as u8,
-            menu.auto_restore as u8,
+            self.menu_settings.hmn_mode as u8,
+            self.menu_settings.hmn_slot as u8,
+            self.menu_settings.cpu_mode as u8,
+            self.menu_settings.cpu_slot as u8,
+            self.menu_settings.loop_inputs as u8,
+            self.menu_settings.auto_restore as u8,
         ]);
     }
 }
@@ -182,14 +186,15 @@ pub struct CharacterState {
     //pub air_velocity: [f32; 2],
     //pub hit_velocity: [f32; 2],
     pub percent: f32,
-},
+}
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct InitialState {
     pub hmn: CharacterState,
     pub cpu: CharacterState,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct RecInputs {
     // btn_dpadup : 1;
     // btn_a : 1;
@@ -200,6 +205,7 @@ pub struct RecInputs {
     // btn_R : 1;
     // btn_Z : 1;
     pub button_flags: u8,
+
     pub stickX: i8,
     pub stickY: i8,
     pub substickX: i8,
@@ -225,70 +231,6 @@ static DEFAULT_GCI_HEADER: &'static [u8] = include_bytes!("../gci_header.raw");
 
 const BLOCK_SIZE: usize = 8192;
 
-// puts in big endian format
-pub fn construct_tm_replay_buffer(
-    info: &RecordingInfo, 
-    //initial_state: &InitialState,
-    //recording: &InputRecordings,
-) -> (Vec<u8>, String) {
-    let mut bytes = Vec::with_capacity(8192 * 8);
-
-    info.write_header(&mut bytes);
-
-    let screenshot_offset = bytes.len();
-    let screenshot_size = 2 * 96 * 72;
-    bytes.resize(68 + screenshot_size, 0u8); // black screen for now
-
-    let recording_offset = bytes.len();
-
-    let mut recording_save = vec![0u8; RECORDING_SIZE + 257]; // pad a bit for compression
-    let rec_start = SAVESTATE_SIZE+MATCHINIT_SIZE;
-    recording_save[0..rec_start].copy_from_slice(&DEFAULT_SAVESTATE_AND_MATCHINIT[..rec_start]);
-
-    let rec_slot_size = 4 + 4 + REC_SLOTS*REC_LENGTH;
-    // hmn
-    for i in 0..REC_SLOTS {
-        let input_data_start = rec_start + i*rec_slot_size;
-
-        recording_save[input_data_start+0..input_data_start+4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
-        recording_save[input_data_start+4..input_data_start+8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
-        // zero buttons
-    }
-
-    // cpu
-    for i in 0..REC_SLOTS {
-        let input_data_start = rec_start + (i+6)*rec_slot_size;
-
-        recording_save[input_data_start+0..input_data_start+4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
-        recording_save[input_data_start+4..input_data_start+8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
-        // zero buttons
-    }
-
-    // make space for compression
-    bytes.resize(recording_offset + RECORDING_SIZE, 0u8);
-    let recording_compressed_size = compress::lz77_compress(
-        &recording_save, 
-        RECORDING_SIZE as u32, 
-        &mut bytes[recording_offset..]
-    ) as usize;
-    bytes.resize(recording_offset+recording_compressed_size, 0u8);
-
-    let menu_settings_offset = bytes.len();
-
-    info.write_menu_settings(&mut bytes);
-
-    bytes[56..60].copy_from_slice(&(screenshot_offset as u32).to_be_bytes());
-    bytes[60..64].copy_from_slice(&(recording_offset as u32).to_be_bytes());
-    bytes[64..68].copy_from_slice(&(menu_settings_offset as u32).to_be_bytes());
-
-    let filename = format!(
-        "01-GTME-TMREC_{:02}{:02}{:04}_{:02}{:02}{:02}.gci", 
-        header.month, header.day, header.year,
-        header.hour, header.minute, header.second,
-    );
-
-    (bytes, filename)
-}
 
 fn calculate_checksum(src: &[u8], result: &mut [u8]) {
     let mut checksum: [u8; 16] = [
@@ -419,17 +361,114 @@ fn encode_block(data: &mut [u8], len: usize) {
     }
 }
 
-const WEIRD_BLOCK_HEADER: [u8; 16] = [0, 0, 0, 0, 0xc0, 0x4d, 0x20, 0x01, 0x00, 0x00, 0x00, 0x02, 0, 0, 0, 0];
+const WEIRD_BLOCK_HEADER: [u8; 16] = [0, 0, 0, 0, 0xc0, 0x4d, 0x1d, 0x01, 0x00, 0x00, 0x00, 0x02, 0, 0, 0, 0];
 
-pub fn construct_tm_replay_gci(replay_buffer: &[u8]) -> Vec<u8> {
+// puts in big endian format
+pub fn construct_tm_replay(
+    info: &RecordingInfo, 
+    initial_state: &InitialState,
+    //recording: &InputRecordings,
+) -> (Vec<u8>, String) {
+    // buffer created by unclepunch's tm code
+    let replay_buffer = {
+        let mut bytes = Vec::with_capacity(8192 * 8);
+
+        info.write_header(&mut bytes);
+
+        let screenshot_offset = bytes.len();
+        let screenshot_size = 2 * 96 * 72;
+        bytes.resize(68 + screenshot_size, 0u8); // black screen for now
+
+        let recording_offset = bytes.len();
+
+        let mut recording_save = vec![0u8; RECORDING_SIZE + 257]; // pad a bit for compression
+        let rec_start = SAVESTATE_SIZE+MATCHINIT_SIZE;
+        recording_save[0..rec_start].copy_from_slice(&DEFAULT_SAVESTATE_AND_MATCHINIT[..rec_start]);
+
+        // overwrite initial state
+
+        //let st_offset = 312; // savestate offset (skip MatchInit)
+        //let ft_state_offset = st_offset+8+EVENT_DATASIZE;
+        //let percent_offset = 0x1830;
+        //let ft_state_size = 9016;
+
+        //for i in 0..6 {
+        //    let ft_state_data_offset = ft_state_offset + ft_state_size*i;
+        //    recording_save[ft_state_data_offset+percent_offset..][..4].copy_from_slice(&987.0f32.to_be_bytes());
+        //    recording_save[ft_state_data_offset+percent_offset+8..][..4].copy_from_slice(&987.0f32.to_be_bytes()); // temp percent???
+        //}
+
+        // write inputs
+
+        let rec_slot_size = 4 + 4 + REC_SLOTS*REC_LENGTH;
+        // hmn
+        for i in 0..REC_SLOTS {
+            let input_data_start = rec_start + i*rec_slot_size;
+
+            recording_save[input_data_start+0..input_data_start+4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
+            recording_save[input_data_start+4..input_data_start+8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
+            // zero buttons
+        }
+
+        // cpu
+        for i in 0..REC_SLOTS {
+            let input_data_start = rec_start + (i+6)*rec_slot_size;
+
+            recording_save[input_data_start+0..input_data_start+4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
+            recording_save[input_data_start+4..input_data_start+8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
+            // zero buttons
+        }
+
+        // write compressed data
+        bytes.resize(recording_offset + RECORDING_SIZE, 0u8);
+        let recording_compressed_size = compress::lz77_compress(
+            &recording_save, 
+            RECORDING_SIZE as u32, 
+            &mut bytes[recording_offset..]
+        ) as usize;
+        bytes.resize(recording_offset+recording_compressed_size, 0u8);
+
+        let menu_settings_offset = bytes.len();
+
+        info.write_menu_settings(&mut bytes);
+
+        bytes[56..60].copy_from_slice(&(screenshot_offset as u32).to_be_bytes());
+        bytes[60..64].copy_from_slice(&(recording_offset as u32).to_be_bytes());
+        bytes[64..68].copy_from_slice(&(menu_settings_offset as u32).to_be_bytes());
+
+        bytes
+    };
+
+    {
+        let path = std::path::PathBuf::from("/home/alex/melee/tutor/tm_replay_parser/blank2.raw");
+        std::fs::write(&path, &replay_buffer).unwrap();
+        println!("wrote raw replay {}", path.display());
+    }
+
+    // for the gci file
     let mut bytes = Vec::with_capacity(8096 * 8);
 
     bytes.extend_from_slice(DEFAULT_GCI_HEADER);
 
-    let name = b"custom tmrec";
-    bytes[0x60..0x60+name.len()].copy_from_slice(name);
+    let date = info.time;
+    let ident = "GTME01";
+    bytes[0..6].copy_from_slice(ident.as_bytes());
+    let gci_inner_name = format!(
+        "TMREC_{:02}{:02}{:04}_{:02}{:02}{:02}", 
+        date.month, date.day, date.year,
+        date.hour, date.minute, date.second,
+    );
+    bytes[8..0x28].fill(0);
+    bytes[8..8+gci_inner_name.len()].copy_from_slice(gci_inner_name.as_bytes());
+
+    bytes[0x60..0x60+info.filename.len()].copy_from_slice(&info.filename);
 
     assert!(bytes.len() == 0x1EB0);
+
+    // recalculate gci header checksum
+
+    let (gci_header, checksum) = bytes.split_at_mut(0x1E80);
+    calculate_checksum(&gci_header[0x40..], checksum);
 
     // round up division by block size
     // subtract 400 bytes, because first block always has that size for some reason
@@ -443,7 +482,7 @@ pub fn construct_tm_replay_gci(replay_buffer: &[u8]) -> Vec<u8> {
         bytes.resize(bytes.len() + 16, 0); // space for checksum
         bytes.extend_from_slice(&WEIRD_BLOCK_HEADER);
         let len = bytes.len();
-        bytes[len - 16 + 3] = i as u8; // block idx
+        bytes[len - 16 + 1] = i as u8 + 1; // block idx
 
         let block_data_start = (400-32) + (BLOCK_SIZE-32)*i;
         if replay_buffer[block_data_start..].len() >= (BLOCK_SIZE-32) {
@@ -463,26 +502,47 @@ pub fn construct_tm_replay_gci(replay_buffer: &[u8]) -> Vec<u8> {
         encode_block(&mut bytes[start..start+BLOCK_SIZE], BLOCK_SIZE);
     }
 
-    bytes
+    let date = info.time;
+    let filename = format!(
+        "01-GTME-TMREC_{:02}{:02}{:04}_{:02}{:02}{:02}.gci", 
+        date.month, date.day, date.year,
+        date.hour, date.minute, date.second,
+    );
+
+    (bytes, filename)
 }
 
 fn main() {
     let mut filename_buf = [0u8; 32];
-    let name = b"Hello, World!";
+    //let name = b"blank";
+    let name = b"DEBUG";
     filename_buf[0..name.len()].copy_from_slice(name);
 
-    let (replay, filename) = construct_tm_replay_buffer(
-        &ReplayInfo {
-            hmn: slp_parser::Character::Fox.neutral(),
-            cpu: slp_parser::Character::Falco.neutral(),
-            stage: slp_parser::Stage::Battlefield,
-            time: RecordingTime::today_approx(),
+    let (gci, filename) = construct_tm_replay(
+        &RecordingInfo {
+            hmn: slp_parser::Character::Peach.neutral(),
+            cpu: slp_parser::CharacterColour::Sheik(slp_parser::character_colours::ZeldaColour::Green),
+            stage: slp_parser::Stage::FinalDestination,
+            //time: RecordingTime::today_approx(),
+            time: RecordingTime {
+                month: 7, day: 7, year: 2024, hour: 20, minute: 46, second: 3
+            },
             filename: filename_buf,
             menu_settings: RecordingMenuSettings::default(),
         },
+        &InitialState {
+            hmn: CharacterState {
+                position: [0.0; 2],
+                state: slp_parser::ActionState::Standard(slp_parser::StandardActionState::Wait),
+                percent: 987.0,
+            },
+            cpu: CharacterState {
+                position: [0.0; 2],
+                state: slp_parser::ActionState::Standard(slp_parser::StandardActionState::Wait),
+                percent: 987.0,
+            },
+        }
     );
-
-    let gci = construct_tm_replay_gci(&replay);
 
     let mut path = std::path::PathBuf::from("/home/alex/.config/SlippiOnline/GC/USA/Card A/");
     path.push(&filename);

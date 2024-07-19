@@ -102,7 +102,7 @@ static int deobfuscate_byte(int r3, int r4) {
 // https://decomp.me/scratch/AQnIM
 // 0x803B2B20: (MemoryCard_CalcChecksum) unnamed in GTME01.map
 // decoded by Altafen and Aitch
-static void calculate_checksum(U8 *src, int len, U8 *result) {
+void calculate_checksum(U8 *src, int len, U8 *result) {
     U8 checksum[16];
     int i;
 

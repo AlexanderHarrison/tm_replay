@@ -35,8 +35,8 @@ The code to encrypt and decrypt these blocks can be found in `obfuscation.c`.
 ### Melee inner block format
 
 Each decrypted block from the outer format starts with 16 bytes of metadata.
-The first 4 bytes is the block index.
-I don't know what the next 12 bytes is, but it's the same for every decrypted block.
+The first 2 bytes is the block index.
+I don't know what the next 14 bytes are, but it's the same for every decrypted block.
 
 Concatenate the rest of the data in the blocks to recover the raw inner data.
 

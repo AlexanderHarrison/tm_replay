@@ -171,25 +171,27 @@ impl RecordingInfo {
     }
 }
 
-#[repr(C)]
-pub struct RecInputData {
-    pub start_frame: u32, // the frame these inputs start on
-    pub num: u32,
-    pub inputs: [RecInputs; REC_LENGTH],
-}
+#[derive(Copy, Clone, Debug)]
+pub enum Direction { Left, Right }
 
 #[derive(Clone, Debug)]
 pub struct CharacterState {
     pub position: [f32; 2],
+    pub airborne: bool,
     pub state: slp_parser::ActionState,
-    //pub stale_queue: [i32; 11],
-    //pub air_velocity: [f32; 2],
-    //pub hit_velocity: [f32; 2],
+    pub state_frame: f32,
+    pub direction: Direction,
     pub percent: f32,
+    //pub stale_queue: [i32; 11],
+    pub anim_velocity: [f32; 2],
+    pub self_velocity: [f32; 2],
+    pub hit_velocity: [f32; 2],
+    pub ground_velocity: [f32; 2],
 }
 
 #[derive(Clone, Debug)]
 pub struct InitialState {
+    pub start_frame: i32,
     pub hmn: CharacterState,
     pub cpu: CharacterState,
 }
@@ -201,36 +203,45 @@ pub struct RecInputs {
     // btn_b : 1;
     // btn_x : 1;
     // btn_y : 1;
-    // btn_L : 1;
-    // btn_R : 1;
-    // btn_Z : 1;
+    // btn_l : 1;
+    // btn_r : 1;
+    // btn_z : 1;
     pub button_flags: u8,
 
-    pub stickX: i8,
-    pub stickY: i8,
-    pub substickX: i8,
-    pub substickY: i8,
+    pub stick_x: i8,
+    pub stick_y: i8,
+    pub cstick_x: i8,
+    pub cstick_y: i8,
     pub trigger: u8,
 }
 
+impl RecInputs {
+    pub const NO_INPUT: RecInputs = RecInputs {
+        button_flags: 0, stick_x: 0, stick_y: 0, cstick_x: 0, cstick_y: 0, trigger: 0,
+    };
+}
+
 pub struct InputRecordings<'a> {
-    pub hmn: &'a [RecInputs],
-    pub cpu: &'a [RecInputs],
+    pub hmn: &'a [&'a [RecInputs]],
+    pub cpu: &'a [&'a [RecInputs]],
 }
 
 const EVENT_DATASIZE: usize = 512;
 const REC_LENGTH: usize = 1 * 60 * 60; // 60 seconds
 const REC_SLOTS: usize = 6;
+const REC_SLOT_SIZE: usize = 4 + 4 + REC_LENGTH*6;
 
-static DEFAULT_SAVESTATE_AND_MATCHINIT: &'static [u8] = include_bytes!("../savestate_matchinit.raw");
+static DEFAULT_SAVESTATE_AND_MATCHINIT: &'static [u8] = include_bytes!("savestate_matchinit.raw");
 const SAVESTATE_SIZE: usize = 54616;
 const MATCHINIT_SIZE: usize = 312;
 const RECORDING_SIZE: usize = 314224;
 
-static DEFAULT_GCI_HEADER: &'static [u8] = include_bytes!("../gci_header.raw");
+static DEFAULT_GCI_HEADER: &'static [u8] = include_bytes!("gci_header.raw");
 
 const BLOCK_SIZE: usize = 8192;
 
+// 380*0x20 bytes taken from 0x803C2800
+static ACTION_FN_LOOKUP_TABLE: &'static [u8] = include_bytes!("fn_table.raw");
 
 fn calculate_checksum(src: &[u8], result: &mut [u8]) {
     let mut checksum: [u8; 16] = [
@@ -363,11 +374,12 @@ fn encode_block(data: &mut [u8], len: usize) {
 
 const WEIRD_BLOCK_HEADER: [u8; 16] = [0, 0, 0, 0, 0xc0, 0x4d, 0x1d, 0x01, 0x00, 0x00, 0x00, 0x02, 0, 0, 0, 0];
 
-// puts in big endian format
+// inputs will be truncated if they are longer than 3600 frames.
+// There is a a maximum of 6 slots each for both human and cpu.
 pub fn construct_tm_replay(
     info: &RecordingInfo, 
     initial_state: &InitialState,
-    //recording: &InputRecordings,
+    inputs: &InputRecordings,
 ) -> (Vec<u8>, String) {
     // buffer created by unclepunch's tm code
     let replay_buffer = {
@@ -381,45 +393,128 @@ pub fn construct_tm_replay(
 
         let recording_offset = bytes.len();
 
-        let mut recording_save = vec![0u8; RECORDING_SIZE + 257]; // pad a bit for compression
+        let mut recording_save = vec![0u8; RECORDING_SIZE + 257]; // pad a bit for compression algo
         let rec_start = SAVESTATE_SIZE+MATCHINIT_SIZE;
         recording_save[0..rec_start].copy_from_slice(&DEFAULT_SAVESTATE_AND_MATCHINIT[..rec_start]);
 
-        // overwrite initial state
+        let savestate_offset = MATCHINIT_SIZE;
+        recording_save[savestate_offset+4..][..4].copy_from_slice(&initial_state.start_frame.to_be_bytes());
 
-        //let st_offset = 312; // savestate offset (skip MatchInit)
-        //let ft_state_offset = st_offset+8+EVENT_DATASIZE;
-        //let percent_offset = 0x1830;
-        //let ft_state_size = 9016;
+        // overwrite RecordingSave values
 
-        //for i in 0..6 {
-        //    let ft_state_data_offset = ft_state_offset + ft_state_size*i;
-        //    recording_save[ft_state_data_offset+percent_offset..][..4].copy_from_slice(&987.0f32.to_be_bytes());
-        //    recording_save[ft_state_data_offset+percent_offset+8..][..4].copy_from_slice(&987.0f32.to_be_bytes()); // temp percent???
-        //}
+        fn write_ft_state_data(ft_state: &mut [u8], st: &CharacterState) {
+            // nested struct offsets
+            let phys_offset = 40;
+            let dmg_offset = 3680;
+            let cb_offset = 4288;
+
+            let state_offset = 4;
+            ft_state[state_offset..][..4].copy_from_slice(&(st.state.as_u16() as u32).to_be_bytes());
+            ft_state[state_offset+4..][..4].copy_from_slice(&st.state_frame.to_be_bytes());
+
+            let direction_offset = 8;
+            let direction_bytes = match st.direction {
+                Direction::Left => (-1.0f32).to_be_bytes(),
+                Direction::Right => 1.0f32.to_be_bytes(),
+            };
+            ft_state[direction_offset..][..4].copy_from_slice(&direction_bytes);
+            
+            let vel_offset = phys_offset;
+            ft_state[vel_offset+0..][..4].copy_from_slice(&st.anim_velocity[0].to_be_bytes()); // anim_vel.x
+            ft_state[vel_offset+4..][..4].copy_from_slice(&st.anim_velocity[1].to_be_bytes()); // anim_vel.y
+            ft_state[vel_offset+12+0..][..4].copy_from_slice(&st.self_velocity[0].to_be_bytes()); // self_vel.x
+            ft_state[vel_offset+12+4..][..4].copy_from_slice(&st.self_velocity[1].to_be_bytes()); // self_vel.y
+            ft_state[vel_offset+24+0..][..4].copy_from_slice(&st.hit_velocity[0].to_be_bytes()); // kb_vel.x
+            ft_state[vel_offset+24+4..][..4].copy_from_slice(&st.hit_velocity[1].to_be_bytes()); // kb_vel.y
+            ft_state[vel_offset+120+0..][..4].copy_from_slice(&st.ground_velocity[0].to_be_bytes()); // selfVelGround.x
+            ft_state[vel_offset+120+4..][..4].copy_from_slice(&st.ground_velocity[1].to_be_bytes()); // selfVelGround.y
+            
+            let pos_offset = phys_offset + 12*3 + 4*6;
+            let x_pos_bytes = st.position[0].to_be_bytes();
+            let y_pos_bytes = st.position[1].to_be_bytes();
+            ft_state[pos_offset+0..][..4].copy_from_slice(&x_pos_bytes); // pos.x
+            ft_state[pos_offset+4..][..4].copy_from_slice(&y_pos_bytes); // pos.y
+            ft_state[pos_offset+12..][..4].copy_from_slice(&x_pos_bytes); // pos_prev.x
+            ft_state[pos_offset+12+4..][..4].copy_from_slice(&y_pos_bytes); // pos_prev.y
+
+            let airborne_offset = phys_offset + 108; // air_state in struct phys
+            ft_state[airborne_offset..][..4].copy_from_slice(&(st.airborne as u32).to_be_bytes());
+
+            let percent_offset = dmg_offset + 4;
+            let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
+            ft_state[percent_offset..][..4].copy_from_slice(&percent_bytes);
+            ft_state[percent_offset+8..][..4].copy_from_slice(&percent_bytes); // temp percent???
+            
+            // action state functions
+            let fns_offset = (st.state.as_u16() as usize) * 0x20;
+            let fns = &ACTION_FN_LOOKUP_TABLE[fns_offset+0xC..fns_offset+0x20]; // 5 fn pointers
+            ft_state[0x10CC..][..4].copy_from_slice(&fns[4..8]); // IASA
+            ft_state[0x10CC..][4..8].copy_from_slice(&fns[0..4]); // Anim
+            ft_state[0x10CC..][8..20].copy_from_slice(&fns[8..20]); // Phys, Coll, Cam
+        }
+
+        let st_offset = 312; // savestate offset - skip MatchInit in RecordingSave
+        let ft_state_offset = 8+EVENT_DATASIZE; // FtState array offset - fields in Savestate;
+        let ft_state_size = 9016;
+        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset..][..4396], &initial_state.hmn);
+        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..4396], &initial_state.cpu);
 
         // write inputs
 
-        let rec_slot_size = 4 + 4 + REC_SLOTS*REC_LENGTH;
-        // hmn
-        for i in 0..REC_SLOTS {
-            let input_data_start = rec_start + i*rec_slot_size;
-
-            recording_save[input_data_start+0..input_data_start+4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
-            recording_save[input_data_start+4..input_data_start+8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
-            // zero buttons
+        recording_save[rec_start+0..rec_start+4].copy_from_slice(&0u32.to_be_bytes()); // start_frame
+        recording_save[rec_start+4..rec_start+8].copy_from_slice(&60u32.to_be_bytes()); // num_frames
+        for i in 0..60 {
+            let o = rec_start+8+6*i;
+            recording_save[o..o+6].copy_from_slice(&[
+                0u8, // buttons
+                127i8 as u8,
+                0,
+                0,
+                0,
+                0,
+            ]); // inputs
         }
 
-        // cpu
-        for i in 0..REC_SLOTS {
-            let input_data_start = rec_start + (i+6)*rec_slot_size;
+        fn write_inputs(slot: &mut [u8], start_frame: i32, inputs: &[RecInputs]) {
+            if inputs.len() == 0 {
+                slot[0..4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
+                slot[4..8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
+                return;
+            }
 
-            recording_save[input_data_start+0..input_data_start+4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
-            recording_save[input_data_start+4..input_data_start+8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
-            // zero buttons
+            slot[0..4].copy_from_slice(&start_frame.to_be_bytes()); // start frame
+            slot[4..8].copy_from_slice(&(inputs.len() as u32).to_be_bytes());    // num_frames
+
+            for frame in 0..inputs.len() {
+                let offset = 8 + frame*6;
+                let input = inputs[frame];
+
+                slot[offset..offset+6].copy_from_slice(&[
+                    input.button_flags,
+                    input.stick_x as u8,
+                    input.stick_y as u8,
+                    input.cstick_x as u8,
+                    input.cstick_y as u8,
+                    input.trigger,
+                ]);
+            }
         }
 
-        // write compressed data
+        // hmn inputs
+        for i in 0..inputs.hmn.len().min(REC_SLOTS) {
+            let input_data_start = rec_start + i*REC_SLOT_SIZE;
+            let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
+            write_inputs(slot, initial_state.start_frame, inputs.hmn[i]);
+        }
+
+        // cpu inputs
+        for i in 0..inputs.cpu.len().min(REC_SLOTS) {
+            let input_data_start = rec_start + (i+6)*REC_SLOT_SIZE;
+            let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
+            write_inputs(slot, initial_state.start_frame, inputs.cpu[i]);
+        }
+
+        // compress
         bytes.resize(recording_offset + RECORDING_SIZE, 0u8);
         let recording_compressed_size = compress::lz77_compress(
             &recording_save, 
@@ -514,7 +609,6 @@ pub fn construct_tm_replay(
 
 fn main() {
     let mut filename_buf = [0u8; 32];
-    //let name = b"blank";
     let name = b"DEBUG";
     filename_buf[0..name.len()].copy_from_slice(name);
 
@@ -523,25 +617,65 @@ fn main() {
             hmn: slp_parser::Character::Peach.neutral(),
             cpu: slp_parser::CharacterColour::Sheik(slp_parser::character_colours::ZeldaColour::Green),
             stage: slp_parser::Stage::FinalDestination,
-            //time: RecordingTime::today_approx(),
-            time: RecordingTime {
-                month: 7, day: 7, year: 2024, hour: 20, minute: 46, second: 3
-            },
+            time: RecordingTime::today_approx(),
             filename: filename_buf,
-            menu_settings: RecordingMenuSettings::default(),
+            menu_settings: RecordingMenuSettings {
+                //hmn_mode: HmnRecordingMode::Playback,
+                //hmn_slot: RecordingSlot::Slot1,
+                ..RecordingMenuSettings::default()
+            },
         },
         &InitialState {
+            start_frame: 0,
             hmn: CharacterState {
-                position: [0.0; 2],
+                position: [0.0, 0.0],
+                airborne: false,
+                direction: Direction::Left,
                 state: slp_parser::ActionState::Standard(slp_parser::StandardActionState::Wait),
-                percent: 987.0,
+                state_frame: 0.0,
+                percent: 19.0,
+                anim_velocity: [0.0; 2],
+                self_velocity: [0.0; 2],
+                hit_velocity: [0.0; 2],
+                ground_velocity: [0.0; 2],
             },
             cpu: CharacterState {
-                position: [0.0; 2],
+                position: [10.0, 0.0],
+                airborne: false,
+                direction: Direction::Right,
                 state: slp_parser::ActionState::Standard(slp_parser::StandardActionState::Wait),
-                percent: 987.0,
+                state_frame: 0.0,
+                percent: 100.0,
+                anim_velocity: [0.0; 2],
+                self_velocity: [0.0; 2],
+                hit_velocity: [0.0; 2],
+                ground_velocity: [0.0; 2],
             },
-        }
+        },
+        &InputRecordings {
+            hmn: &[],
+            cpu: &[],
+            //hmn: &[
+            //    &[RecInputs {
+            //        stick_x: -127i8,
+            //        ..RecInputs::NO_INPUT
+            //    }; 60],
+            //    &[RecInputs {
+            //        stick_x: 127i8,
+            //        ..RecInputs::NO_INPUT
+            //    }; 60],
+            //],
+            //cpu: &[
+            //    &[RecInputs {
+            //        stick_x: -127i8,
+            //        ..RecInputs::NO_INPUT
+            //    }; 60],
+            //    &[RecInputs {
+            //        stick_x: 127i8,
+            //        ..RecInputs::NO_INPUT
+            //    }; 60],
+            //],
+        },
     );
 
     let mut path = std::path::PathBuf::from("/home/alex/.config/SlippiOnline/GC/USA/Card A/");

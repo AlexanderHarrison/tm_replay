@@ -16,19 +16,21 @@ The outermost layer.
 Documentation on this format is prevalent,
 such as [https://web.archive.org/web/20040520074333/http://members.iinet.net.au/~theimp/gci/GameCube%20GCI%20&%20GCP%20Memory%20Card%20Save%20File%20Format%20Specifications.pdf][here].
 The block format data for unclepunch replays seem to start at offset 0x1EB0 in the file until the end of the file.
-None of the header data seems to be relevant here, and can be copied from an example gci file.
+None of the header data seems to be relevant here except for the block count (offset 0x38-0x40). 
+The rest of the header can be copied from an example gci file.
 There are no icon data stored, the screenshot used in unclepunch is stored elsewhere.
 
 ### Melee outer block format
 
-Thanks to Cuyler36, Altafen, and Reno in the GameCube decompilation discord for their help in decompilation.
-Without them, reverse engineering this format would have taken 1000x longer.
+Huge thank you to Cuyler36, Altafen, and Reno in the GameCube decompilation discord for their help in decompilation.
+Without them, reverse engineering would have taken 1000x longer.
 
 The raw inner data are separated into blocks of maximum size 8192. 
 The first block always seems to 400 bytes and the rest are all 8192 bytes. 
 The last block is padded to 8192 bytes.
 
 Each block starts with a 16 bytes checksum, with the rest being encrypted inner data.
+There is another checksum at 0x1E80 covering the data from 0x40 to that point.
 
 The code to encrypt and decrypt these blocks can be found in `obfuscation.c`.
 

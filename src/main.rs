@@ -1,5 +1,82 @@
 mod compress;
 
+use arrayvec::ArrayVec;
+
+// Things that could stale but don't
+// - luigi's taunt
+// - zair
+// - dk cargo throw release
+#[derive(Copy, Clone, Debug)]
+pub enum StaleableMoves {
+    Jab1 = 0x02,
+    Jab2 = 0x03,
+    Jab3 = 0x04,
+    JabRapid = 0x05,
+    DashAttack = 0x06,
+    FTilt = 0x07,
+    UTilt = 0x08,
+    DTilt = 0x09,
+    FSmash = 0x0A,
+    USmash = 0x0B,
+    DSmash = 0x0C,
+
+    NAir = 0x0D,
+    FAir = 0x0E,
+    BAir = 0x0F,
+    UAir = 0x10,
+    DAir = 0x11,
+
+    NSpecial = 0x12,
+    SSpecial = 0x13,
+    USpecial = 0x14,
+    DSpecial = 0x15,
+
+    // Kirby copy abilities
+    NSpecialCopyMario          = 0x16,
+    NSpecialCopyFox            = 0x17,
+    NSpecialCopyCaptainFalcon  = 0x18,
+    NSpecialCopyDonkeyKong     = 0x19,
+    NSpecialCopyBowser         = 0x1A,
+    NSpecialCopyLink           = 0x1B,
+    NSpecialCopySheik          = 0x1C,
+    NSpecialCopyNess           = 0x1D,
+    NSpecialCopyPeach          = 0x1E,
+    NSpecialCopyIceClimbers    = 0x1F,
+    NSpecialCopyPikachu        = 0x20,
+    NSpecialCopySamus          = 0x21,
+    NSpecialCopyYoshi          = 0x22,
+    NSpecialCopyJigglypuff     = 0x23,
+    NSpecialCopyMewtwo         = 0x24,
+    NSpecialCopyLuigi          = 0x25,
+    NSpecialCopyMarth          = 0x26,
+    NSpecialCopyZelda          = 0x27,
+    NSpecialCopyYoungLink      = 0x28,
+    NSpecialCopyDrMario        = 0x29,
+    NSpecialCopyFalco          = 0x2A,
+    NSpecialCopyPichu          = 0x2B,
+    NSpecialCopyMrGameAndWatch = 0x2C,
+    NSpecialCopyGanondorf      = 0x2D,
+    NSpecialCopyRoy            = 0x2E,
+
+    GetUpAttackBack = 0x32,
+    GetUpAttackStomach = 0x33,
+
+    Pummel = 0x34,
+    FThrow = 0x35,
+    BThrow = 0x36,
+    UThrow = 0x37,
+    DThrow = 0x38,
+
+    // DK cargo throws
+    FCargoThrow = 0x39,
+    BCargoThrow = 0x3A,
+    UCargoThrow = 0x3B,
+    DCargoThrow = 0x3C,
+
+    LedgeAttackSlow = 0x3D,
+    LedgeAttackFast = 0x3E,
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum RecordingSlot {
     Random = 0,
@@ -182,7 +259,7 @@ pub struct CharacterState {
     pub state_frame: f32,
     pub direction: Direction,
     pub percent: f32,
-    //pub stale_queue: [i32; 11],
+    pub stale_moves: ArrayVec<StaleableMoves, 10>,
     pub anim_velocity: [f32; 2],
     pub self_velocity: [f32; 2],
     pub hit_velocity: [f32; 2],
@@ -406,7 +483,6 @@ pub fn construct_tm_replay(
             // nested struct offsets
             let phys_offset = 40;
             let dmg_offset = 3680;
-            let cb_offset = 4288;
 
             let state_offset = 4;
             ft_state[state_offset..][..4].copy_from_slice(&(st.state.as_u16() as u32).to_be_bytes());
@@ -451,13 +527,31 @@ pub fn construct_tm_replay(
             ft_state[0x10CC..][..4].copy_from_slice(&fns[4..8]); // IASA
             ft_state[0x10CC..][4..8].copy_from_slice(&fns[0..4]); // Anim
             ft_state[0x10CC..][8..20].copy_from_slice(&fns[8..20]); // Phys, Coll, Cam
+
+            // stale moves
+
+            let stale_offset = 8972;
+            let next_stale_move_idx = (st.stale_moves.len() as u32) % 10;
+            ft_state[stale_offset..][..4].copy_from_slice(&next_stale_move_idx.to_be_bytes());
+
+            for i in 0..st.stale_moves.len() {
+                let offset = stale_offset + 4 + 4*i;
+                let move_id = st.stale_moves[i] as u16;
+                ft_state[offset..][..2].copy_from_slice(&move_id.to_be_bytes());
+                ft_state[offset+2..][..2].copy_from_slice(&[0, 0]); // # of action states this game (unused probably)
+            }
+           
+            for i in st.stale_moves.len()..10 {
+                let offset = stale_offset + 4 + 4*i;
+                ft_state[offset..][..4].copy_from_slice(&[0, 0, 0, 0]);
+            }
         }
 
         let st_offset = 312; // savestate offset - skip MatchInit in RecordingSave
         let ft_state_offset = 8+EVENT_DATASIZE; // FtState array offset - fields in Savestate;
         let ft_state_size = 9016;
-        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset..][..4396], &initial_state.hmn);
-        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..4396], &initial_state.cpu);
+        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset..][..ft_state_size], &initial_state.hmn);
+        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size], &initial_state.cpu);
 
         // write inputs
 
@@ -634,6 +728,7 @@ fn main() {
                 state: slp_parser::ActionState::Standard(slp_parser::StandardActionState::Wait),
                 state_frame: 0.0,
                 percent: 19.0,
+                stale_moves: [StaleableMoves::DSmash; 10].into(),
                 anim_velocity: [0.0; 2],
                 self_velocity: [0.0; 2],
                 hit_velocity: [0.0; 2],
@@ -646,6 +741,7 @@ fn main() {
                 state: slp_parser::ActionState::Standard(slp_parser::StandardActionState::Wait),
                 state_frame: 0.0,
                 percent: 100.0,
+                stale_moves: ArrayVec::new(),
                 anim_velocity: [0.0; 2],
                 self_velocity: [0.0; 2],
                 hit_velocity: [0.0; 2],

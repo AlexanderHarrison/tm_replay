@@ -248,16 +248,13 @@ impl RecordingInfo {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum Direction { Left, Right }
-
 #[derive(Clone, Debug)]
 pub struct CharacterState {
     pub position: [f32; 2],
     pub airborne: bool,
     pub state: slp_parser::ActionState,
     pub state_frame: f32,
-    pub direction: Direction,
+    pub direction: slp_parser::Direction,
     pub percent: f32,
     pub stale_moves: ArrayVec<StaleableMoves, 10>,
     pub anim_velocity: [f32; 2],
@@ -422,7 +419,7 @@ fn obfuscate_byte(prev: u8, this: u8) -> u8 {
                  ((r4 & 0x40) >> 5) |
                  ((r4 & 0x80) >> 5);
             r4 = r5 & 0xFF;
-            return r4 as u8;
+        return r4 as u8;
         }
         6 => {
             r5 = ((r4 & 0x01) << 2) |
@@ -477,8 +474,13 @@ pub fn construct_tm_replay(
         let savestate_offset = MATCHINIT_SIZE;
         recording_save[savestate_offset+4..][..4].copy_from_slice(&initial_state.start_frame.to_be_bytes());
 
-        // overwrite RecordingSave values
+        // overwrite MatchInit values
 
+        let stage = info.stage.to_u16_external();
+        recording_save[0x0E..][..2].copy_from_slice(&stage.to_be_bytes());
+
+        // write FtState values
+        
         fn write_ft_state_data(ft_state: &mut [u8], st: &CharacterState) {
             // nested struct offsets
             let phys_offset = 40;
@@ -490,8 +492,8 @@ pub fn construct_tm_replay(
 
             let direction_offset = 8;
             let direction_bytes = match st.direction {
-                Direction::Left => (-1.0f32).to_be_bytes(),
-                Direction::Right => 1.0f32.to_be_bytes(),
+                slp_parser::Direction::Left => (-1.0f32).to_be_bytes(),
+                slp_parser::Direction::Right => 1.0f32.to_be_bytes(),
             };
             ft_state[direction_offset..][..4].copy_from_slice(&direction_bytes);
             
@@ -594,18 +596,28 @@ pub fn construct_tm_replay(
             }
         }
 
+         let mut hmn_slots: [&[RecInputs]; 6] = [&[]; REC_SLOTS];
+         for i in 0..inputs.hmn.len().min(REC_SLOTS) {
+             hmn_slots[i] = inputs.hmn[i];
+         }
+
+         let mut cpu_slots: [&[RecInputs]; 6] = [&[]; REC_SLOTS];
+         for i in 0..inputs.cpu.len().min(REC_SLOTS) {
+             cpu_slots[i] = inputs.cpu[i];
+         }
+
         // hmn inputs
-        for i in 0..inputs.hmn.len().min(REC_SLOTS) {
+        for i in 0..REC_SLOTS {
             let input_data_start = rec_start + i*REC_SLOT_SIZE;
             let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
-            write_inputs(slot, initial_state.start_frame, inputs.hmn[i]);
+            write_inputs(slot, initial_state.start_frame, hmn_slots[i]);
         }
 
         // cpu inputs
-        for i in 0..inputs.cpu.len().min(REC_SLOTS) {
+        for i in 0..REC_SLOTS {
             let input_data_start = rec_start + (i+6)*REC_SLOT_SIZE;
             let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
-            write_inputs(slot, initial_state.start_frame, inputs.cpu[i]);
+            write_inputs(slot, initial_state.start_frame, cpu_slots[i]);
         }
 
         // compress
@@ -627,12 +639,6 @@ pub fn construct_tm_replay(
 
         bytes
     };
-
-    {
-        let path = std::path::PathBuf::from("/home/alex/melee/tutor/tm_replay_parser/blank2.raw");
-        std::fs::write(&path, &replay_buffer).unwrap();
-        println!("wrote raw replay {}", path.display());
-    }
 
     // for the gci file
     let mut bytes = Vec::with_capacity(8096 * 8);
@@ -699,4 +705,92 @@ pub fn construct_tm_replay(
     );
 
     (bytes, filename)
+}
+
+pub fn construct_tm_replay_from_slp(
+    game: &slp_parser::Game, 
+    frame: usize,       // panics if oob
+    duration: usize,    // truncated if longer than 3600
+    name: &str,         // panics if longer than 32 bytes
+) -> (Vec<u8>, String) {
+    let info = &game.info;
+    let time = info.start_time.fields();
+
+    let mut filename = [0u8; 32];
+    filename[..name.len()].copy_from_slice(name.as_bytes());
+
+    fn inputs_over_frames(frames: &[slp_parser::Frame]) -> Vec<RecInputs> {
+        use slp_parser::buttons_mask;
+
+        frames
+            .iter()
+            .map(|f| {
+                RecInputs {
+                    button_flags: (
+                        (f.buttons_mask & buttons_mask::D_PAD_UP)
+                            | ((f.buttons_mask & buttons_mask::A) >> 7)
+                            | ((f.buttons_mask & buttons_mask::B) >> 7)
+                            | ((f.buttons_mask & buttons_mask::X) >> 7)
+                            | ((f.buttons_mask & buttons_mask::Y) >> 7)
+                            | ((f.buttons_mask & buttons_mask::L_DIGITAL) >> 1)
+                            | ((f.buttons_mask & buttons_mask::R_DIGITAL) << 1)
+                            | ((f.buttons_mask & buttons_mask::Z) << 3)
+                    ) as u8,
+                    stick_x: (f.left_stick_coords[0] * 127.0) as i8,
+                    stick_y: (f.left_stick_coords[1] * 127.0) as i8,
+                    cstick_x: (f.right_stick_coords[0] * 127.0) as i8,
+                    cstick_y: (f.right_stick_coords[1] * 127.0) as i8,
+                    trigger: (f.analog_trigger_value * 255.0) as u8,
+                }
+            }).collect()
+    }
+
+    fn state_from_frame(frame: &slp_parser::Frame) -> CharacterState {
+        CharacterState {
+            position: [frame.position.x, frame.position.y],
+            airborne: frame.is_airborne,
+            state: frame.state,
+            state_frame: frame.anim_frame,
+            direction: frame.direction,
+            percent: frame.percent,
+            stale_moves: ArrayVec::new(), // TODO
+            anim_velocity: [0.0; 2], // IDK
+            self_velocity: [frame.velocity.x, frame.velocity.y],
+            hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y],
+            ground_velocity: [frame.ground_x_velocity, 0.0],
+        }
+    }
+
+    construct_tm_replay(
+        &RecordingInfo {
+            hmn: info.low_starting_character,
+            cpu: info.high_starting_character,
+            stage: info.stage,
+            time: RecordingTime {
+                year: time.year,
+                month: time.month,
+                day: time.day,
+                hour: time.hour,
+                minute: time.minute,
+                second: time.second,
+            },
+            filename,
+            menu_settings: RecordingMenuSettings {
+                hmn_mode: HmnRecordingMode::Off,
+                hmn_slot: RecordingSlot::Slot1,
+                cpu_mode: CpuRecordingMode::Off,
+                cpu_slot: RecordingSlot::Slot1,
+                ..Default::default()
+            }
+        },
+        &InitialState {
+            start_frame: (frame as i32) - 123, // start at - 123
+            hmn: state_from_frame(&game.low_port_frames[frame]),
+            cpu: state_from_frame(&game.high_port_frames[frame]),
+        },
+        &InputRecordings {
+            hmn: &[&inputs_over_frames(&game.low_port_frames[frame..frame+duration])],
+            cpu: &[&inputs_over_frames(&game.high_port_frames[frame..frame+duration])],
+        }
+    )
 }

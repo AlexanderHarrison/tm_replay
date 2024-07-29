@@ -10,6 +10,8 @@ There are a few layers in play here:
 3. another melee block format
 4. UnclePunch's savestate and replay formats
 
+Note that everything is in big endian format.
+
 ### GCI File format
 
 The outermost layer. 
@@ -37,10 +39,19 @@ The code to encrypt and decrypt these blocks can be found in `obfuscation.c`.
 ### Melee inner block format
 
 Each decrypted block from the outer format starts with 16 bytes of metadata.
-The first 2 bytes is the block index.
-I don't know what the next 14 bytes are, but it's the same for every decrypted block.
 
-Concatenate the rest of the data in the blocks to recover the raw inner data.
+```
+block idx       total len
+    ^              ^
+  |   |          |   |
+  -- -- 00 00 c0 -- -- 01 00 00 00 02 00 00 00 00 
+```
+
+- The first 2 bytes is the block index. This increments for each block.
+- The 6th and 7th bytes is the total len. This is the same for each block.
+I don't know what the other 12 bytes do, but they're the same for each block in every training mode replay file.
+
+Concatenate the rest of the data in the block (having removed the checksum and metadata) to recover the raw inner data.
 
 ### UnclePunch's format
 

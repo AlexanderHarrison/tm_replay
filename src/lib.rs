@@ -446,7 +446,12 @@ fn encode_block(data: &mut [u8], len: usize) {
     }
 }
 
-const WEIRD_BLOCK_HEADER: [u8; 16] = [0, 0, 0, 0, 0xc0, 0x4d, 0x1d, 0x01, 0x00, 0x00, 0x00, 0x02, 0, 0, 0, 0];
+const WEIRD_BLOCK_HEADER: [u8; 16] = [
+    0, 0, // block idx
+    0, 0, 0xc0, // idk
+    0, 0, // total size
+    1, 0, 0, 0, 2, 0, 0, 0, 0, // idk
+];
 
 // inputs will be truncated if they are longer than 3600 frames.
 // There is a a maximum of 6 slots each for both human and cpu.
@@ -466,6 +471,10 @@ pub fn construct_tm_replay(
         bytes.resize(68 + screenshot_size, 0u8); // black screen for now
 
         let recording_offset = bytes.len();
+
+        //let mut recording_save = std::fs::read("/home/alex/.config/SlippiOnline/GC/USA/Card A/01-GTME-TMREC_07112024_044722.gci.recsave").unwrap();
+        ////let mut recording_save = std::fs::read("/home/alex/.config/SlippiOnline/GC/USA/Card A/01-GTME-TMREC_07282024_165306.gci.recsave").unwrap();
+        //recording_save.resize(RECORDING_SIZE + 257, 0u8);
 
         let mut recording_save = vec![0u8; RECORDING_SIZE + 257]; // pad a bit for compression algo
         let rec_start = SAVESTATE_SIZE+MATCHINIT_SIZE;
@@ -489,6 +498,8 @@ pub fn construct_tm_replay(
             let state_offset = 4;
             ft_state[state_offset..][..4].copy_from_slice(&(st.state.as_u16() as u32).to_be_bytes());
             ft_state[state_offset+4..][..4].copy_from_slice(&st.state_frame.to_be_bytes());
+            ft_state[state_offset+8..][..4].copy_from_slice(&(1.0f32).to_be_bytes()); // state speed
+            ft_state[state_offset+12..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // state blend
 
             let direction_offset = 8;
             let direction_bytes = match st.direction {
@@ -668,16 +679,19 @@ pub fn construct_tm_replay(
     // round up division by block size
     // subtract 400 bytes, because first block always has that size for some reason
     let full_blocks = (replay_buffer.len() - (400-32) + (BLOCK_SIZE-32) - 1) / (BLOCK_SIZE-32);
+
+    let mut block_header = WEIRD_BLOCK_HEADER;
+    block_header[5..7].copy_from_slice(&(replay_buffer.len() as u16).to_be_bytes()); // write size
     
     bytes.resize(bytes.len() + 16, 0); // space for checksum
-    bytes.extend_from_slice(&WEIRD_BLOCK_HEADER);
+    bytes.extend_from_slice(&block_header);
     bytes.extend_from_slice(&replay_buffer[0..(400 - 32)]);
 
     for i in 0..full_blocks {
         bytes.resize(bytes.len() + 16, 0); // space for checksum
-        bytes.extend_from_slice(&WEIRD_BLOCK_HEADER);
+        bytes.extend_from_slice(&block_header);
         let len = bytes.len();
-        bytes[len - 16 + 1] = i as u8 + 1; // block idx
+        bytes[len-16..][..2].copy_from_slice(&(i as u16 + 1).to_be_bytes()); // block idx
 
         let block_data_start = (400-32) + (BLOCK_SIZE-32)*i;
         if replay_buffer[block_data_start..].len() >= (BLOCK_SIZE-32) {
@@ -776,9 +790,9 @@ pub fn construct_tm_replay_from_slp(
             },
             filename,
             menu_settings: RecordingMenuSettings {
-                hmn_mode: HmnRecordingMode::Off,
+                hmn_mode: HmnRecordingMode::Playback,
                 hmn_slot: RecordingSlot::Slot1,
-                cpu_mode: CpuRecordingMode::Off,
+                cpu_mode: CpuRecordingMode::Playback,
                 cpu_slot: RecordingSlot::Slot1,
                 ..Default::default()
             }

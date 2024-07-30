@@ -1,7 +1,5 @@
 mod compress;
 
-use arrayvec::ArrayVec;
-
 // Things that could stale but don't
 // - luigi's taunt
 // - zair
@@ -187,25 +185,37 @@ impl RecordingTime {
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct RecordingInfo {
-    // header items
-    pub hmn     : slp_parser::CharacterColour,
-    pub cpu     : slp_parser::CharacterColour,
-    pub stage   : slp_parser::Stage,
-    pub time    : RecordingTime,
-    pub filename: [u8; 32], // ascii
-
-    pub menu_settings: RecordingMenuSettings,
+/// this is the format dolphin uses for GCI filenames.
+/// It's not necessary to name the recordings like this - any name will work.
+pub fn dolphin_gci_filename(time: RecordingTime) -> String {
+    format!(
+        "01-GTME-TMREC_{:02}{:02}{:04}_{:02}{:02}{:02}.gci", 
+        time.month, time.day, time.year,
+        time.hour, time.minute, time.second,
+    )
 }
 
-impl RecordingInfo {
+#[derive(Clone, Debug)]
+pub struct RecordingState<'a> {
+    pub time: RecordingTime,
+    /// Name to show when browsing in Training Mode.
+    pub filename: [u8; 32], // ascii
+    pub menu_settings: RecordingMenuSettings,
+
+    /// Melee starts at frame -123. 'GO' disappears on frame 0.
+    pub start_frame: i32,
+    pub stage: slp_parser::Stage,
+    pub hmn_state: CharacterState<'a>,
+    pub cpu_state: CharacterState<'a>,
+}
+
+impl RecordingState<'_> {
     // offsets zeroed but not written
     fn write_header(&self, b: &mut Vec<u8>) {
-        let char_hmn = self.hmn.character().to_u8_external().unwrap();
-        let costume_hmn = self.hmn.costume_idx();
-        let char_cpu = self.cpu.character().to_u8_external().unwrap();
-        let costume_cpu = self.cpu.costume_idx();
+        let char_hmn = self.hmn_state.character.character().to_u8_external().unwrap();
+        let costume_hmn = self.hmn_state.character.costume_idx();
+        let char_cpu = self.cpu_state.character.character().to_u8_external().unwrap();
+        let costume_cpu = self.cpu_state.character.costume_idx();
 
         let stage_external = self.stage.to_u16_external().to_be_bytes();
         let stage_internal = self.stage.to_u16_internal().to_be_bytes();
@@ -249,37 +259,33 @@ impl RecordingInfo {
 }
 
 #[derive(Clone, Debug)]
-pub struct CharacterState {
+pub struct CharacterState<'a> {
+    pub character: slp_parser::CharacterColour,
     pub position: [f32; 2],
     pub airborne: bool,
     pub state: slp_parser::ActionState,
     pub state_frame: f32,
     pub direction: slp_parser::Direction,
     pub percent: f32,
-    pub stale_moves: ArrayVec<StaleableMoves, 10>,
+
+    /// Truncated to the first ten items.
+    pub stale_moves: &'a [StaleableMoves],
     pub anim_velocity: [f32; 2],
     pub self_velocity: [f32; 2],
     pub hit_velocity: [f32; 2],
     pub ground_velocity: [f32; 2],
 }
 
-#[derive(Clone, Debug)]
-pub struct InitialState {
-    pub start_frame: i32,
-    pub hmn: CharacterState,
-    pub cpu: CharacterState,
-}
-
 #[derive(Copy, Clone, Debug)]
 pub struct RecInputs {
-    // btn_dpadup : 1;
-    // btn_a : 1;
-    // btn_b : 1;
-    // btn_x : 1;
-    // btn_y : 1;
-    // btn_l : 1;
-    // btn_r : 1;
-    // btn_z : 1;
+    /// - z: 0x01
+    /// - r (digital): 0x02
+    /// - l (digital): 0x04
+    /// - x: 0x08
+    /// - y: 0x10
+    /// - b: 0x20
+    /// - a: 0x40
+    /// - dpad up: 0x80
     pub button_flags: u8,
 
     pub stick_x: i8,
@@ -295,9 +301,13 @@ impl RecInputs {
     };
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct InputRecordings<'a> {
-    pub hmn: &'a [&'a [RecInputs]],
-    pub cpu: &'a [&'a [RecInputs]],
+    /// Each slot is truncated to 3600 frames.
+    pub hmn_slots: [Option<&'a [RecInputs]>; 6],
+
+    /// Each slot is truncated to 3600 frames.
+    pub cpu_slots: [Option<&'a [RecInputs]>; 6],
 }
 
 const EVENT_DATASIZE: usize = 512;
@@ -453,18 +463,18 @@ const WEIRD_BLOCK_HEADER: [u8; 16] = [
     1, 0, 0, 0, 2, 0, 0, 0, 0, // idk
 ];
 
-// inputs will be truncated if they are longer than 3600 frames.
-// There is a a maximum of 6 slots each for both human and cpu.
+/// Construct TM replay from initial state and inputs.
+///
+/// Returns GCI file bytes.
 pub fn construct_tm_replay(
-    info: &RecordingInfo, 
-    initial_state: &InitialState,
+    state: &RecordingState, 
     inputs: &InputRecordings,
-) -> (Vec<u8>, String) {
+) -> Vec<u8> {
     // buffer created by unclepunch's tm code
     let replay_buffer = {
         let mut bytes = Vec::with_capacity(8192 * 8);
 
-        info.write_header(&mut bytes);
+        state.write_header(&mut bytes);
 
         let screenshot_offset = bytes.len();
         let screenshot_size = 2 * 96 * 72;
@@ -481,11 +491,11 @@ pub fn construct_tm_replay(
         recording_save[0..rec_start].copy_from_slice(&DEFAULT_SAVESTATE_AND_MATCHINIT[..rec_start]);
 
         let savestate_offset = MATCHINIT_SIZE;
-        recording_save[savestate_offset+4..][..4].copy_from_slice(&initial_state.start_frame.to_be_bytes());
+        recording_save[savestate_offset+4..][..4].copy_from_slice(&state.start_frame.to_be_bytes());
 
         // overwrite MatchInit values
 
-        let stage = info.stage.to_u16_external();
+        let stage = state.stage.to_u16_external();
         recording_save[0x0E..][..2].copy_from_slice(&stage.to_be_bytes());
 
         // write FtState values
@@ -493,20 +503,23 @@ pub fn construct_tm_replay(
         fn write_ft_state_data(ft_state: &mut [u8], st: &CharacterState) {
             // nested struct offsets
             let phys_offset = 40;
+            let input_offset = 568;
             let dmg_offset = 3680;
+
+            // TEMP
+            //ft_state[input_offset..][..4].copy_from_slice(&(-1.0f32).to_be_bytes());
+            //ft_state[input_offset+8..][..4].copy_from_slice(&(-1.0f32).to_be_bytes());
 
             let state_offset = 4;
             ft_state[state_offset..][..4].copy_from_slice(&(st.state.as_u16() as u32).to_be_bytes());
-            ft_state[state_offset+4..][..4].copy_from_slice(&st.state_frame.to_be_bytes());
-            ft_state[state_offset+8..][..4].copy_from_slice(&(1.0f32).to_be_bytes()); // state speed
-            ft_state[state_offset+12..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // state blend
-
-            let direction_offset = 8;
             let direction_bytes = match st.direction {
                 slp_parser::Direction::Left => (-1.0f32).to_be_bytes(),
                 slp_parser::Direction::Right => 1.0f32.to_be_bytes(),
             };
-            ft_state[direction_offset..][..4].copy_from_slice(&direction_bytes);
+            ft_state[state_offset+4..][..4].copy_from_slice(&direction_bytes);
+            ft_state[state_offset+8..][..4].copy_from_slice(&st.state_frame.to_be_bytes());
+            ft_state[state_offset+12..][..4].copy_from_slice(&(1.0f32).to_be_bytes()); // state speed
+            ft_state[state_offset+16..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // state blend
             
             let vel_offset = phys_offset;
             ft_state[vel_offset+0..][..4].copy_from_slice(&st.anim_velocity[0].to_be_bytes()); // anim_vel.x
@@ -523,8 +536,10 @@ pub fn construct_tm_replay(
             let y_pos_bytes = st.position[1].to_be_bytes();
             ft_state[pos_offset+0..][..4].copy_from_slice(&x_pos_bytes); // pos.x
             ft_state[pos_offset+4..][..4].copy_from_slice(&y_pos_bytes); // pos.y
-            ft_state[pos_offset+12..][..4].copy_from_slice(&x_pos_bytes); // pos_prev.x
-            ft_state[pos_offset+12+4..][..4].copy_from_slice(&y_pos_bytes); // pos_prev.y
+            //ft_state[pos_offset+8..][..4].copy_from_slice(&(10.0f32).to_be_bytes());  // pos_delta.x
+            //ft_state[pos_offset+12..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // pos_delta.y
+            //ft_state[pos_offset+16..][..4].copy_from_slice(&x_pos_bytes); // pos_prev.x
+            //ft_state[pos_offset+20..][..4].copy_from_slice(&y_pos_bytes); // pos_prev.y
 
             let airborne_offset = phys_offset + 108; // air_state in struct phys
             ft_state[airborne_offset..][..4].copy_from_slice(&(st.airborne as u32).to_be_bytes());
@@ -543,18 +558,20 @@ pub fn construct_tm_replay(
 
             // stale moves
 
+            let stale_moves_trunc = &st.stale_moves[0..st.stale_moves.len().min(10)];
+
             let stale_offset = 8972;
-            let next_stale_move_idx = (st.stale_moves.len() as u32) % 10;
+            let next_stale_move_idx = (stale_moves_trunc.len() as u32) % 10;
             ft_state[stale_offset..][..4].copy_from_slice(&next_stale_move_idx.to_be_bytes());
 
-            for i in 0..st.stale_moves.len() {
+            for i in 0..stale_moves_trunc.len() {
                 let offset = stale_offset + 4 + 4*i;
-                let move_id = st.stale_moves[i] as u16;
+                let move_id = stale_moves_trunc[i] as u16;
                 ft_state[offset..][..2].copy_from_slice(&move_id.to_be_bytes());
                 ft_state[offset+2..][..2].copy_from_slice(&[0, 0]); // # of action states this game (unused probably)
             }
            
-            for i in st.stale_moves.len()..10 {
+            for i in stale_moves_trunc.len()..10 {
                 let offset = stale_offset + 4 + 4*i;
                 ft_state[offset..][..4].copy_from_slice(&[0, 0, 0, 0]);
             }
@@ -563,8 +580,8 @@ pub fn construct_tm_replay(
         let st_offset = 312; // savestate offset - skip MatchInit in RecordingSave
         let ft_state_offset = 8+EVENT_DATASIZE; // FtState array offset - fields in Savestate;
         let ft_state_size = 9016;
-        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset..][..ft_state_size], &initial_state.hmn);
-        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size], &initial_state.cpu);
+        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset..][..ft_state_size], &state.hmn_state);
+        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size], &state.cpu_state);
 
         // write inputs
 
@@ -582,12 +599,15 @@ pub fn construct_tm_replay(
             ]); // inputs
         }
 
-        fn write_inputs(slot: &mut [u8], start_frame: i32, inputs: &[RecInputs]) {
-            if inputs.len() == 0 {
+        fn write_inputs(slot: &mut [u8], start_frame: i32, inputs: Option<&[RecInputs]>) {
+            // if None or len == 0
+            if !inputs.is_some_and(|i| !i.is_empty()) {
                 slot[0..4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
                 slot[4..8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
                 return;
             }
+
+            let inputs = inputs.unwrap();
 
             slot[0..4].copy_from_slice(&start_frame.to_be_bytes()); // start frame
             slot[4..8].copy_from_slice(&(inputs.len() as u32).to_be_bytes());    // num_frames
@@ -607,28 +627,18 @@ pub fn construct_tm_replay(
             }
         }
 
-         let mut hmn_slots: [&[RecInputs]; 6] = [&[]; REC_SLOTS];
-         for i in 0..inputs.hmn.len().min(REC_SLOTS) {
-             hmn_slots[i] = inputs.hmn[i];
-         }
-
-         let mut cpu_slots: [&[RecInputs]; 6] = [&[]; REC_SLOTS];
-         for i in 0..inputs.cpu.len().min(REC_SLOTS) {
-             cpu_slots[i] = inputs.cpu[i];
-         }
-
         // hmn inputs
         for i in 0..REC_SLOTS {
             let input_data_start = rec_start + i*REC_SLOT_SIZE;
             let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
-            write_inputs(slot, initial_state.start_frame, hmn_slots[i]);
+            write_inputs(slot, state.start_frame, inputs.hmn_slots[i]);
         }
 
         // cpu inputs
         for i in 0..REC_SLOTS {
             let input_data_start = rec_start + (i+6)*REC_SLOT_SIZE;
             let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
-            write_inputs(slot, initial_state.start_frame, cpu_slots[i]);
+            write_inputs(slot, state.start_frame, inputs.cpu_slots[i]);
         }
 
         // compress
@@ -642,7 +652,7 @@ pub fn construct_tm_replay(
 
         let menu_settings_offset = bytes.len();
 
-        info.write_menu_settings(&mut bytes);
+        state.write_menu_settings(&mut bytes);
 
         bytes[56..60].copy_from_slice(&(screenshot_offset as u32).to_be_bytes());
         bytes[60..64].copy_from_slice(&(recording_offset as u32).to_be_bytes());
@@ -656,7 +666,7 @@ pub fn construct_tm_replay(
 
     bytes.extend_from_slice(DEFAULT_GCI_HEADER);
 
-    let date = info.time;
+    let date = state.time;
     let ident = "GTME01";
     bytes[0..6].copy_from_slice(ident.as_bytes());
     let gci_inner_name = format!(
@@ -667,7 +677,7 @@ pub fn construct_tm_replay(
     bytes[8..0x28].fill(0);
     bytes[8..8+gci_inner_name.len()].copy_from_slice(gci_inner_name.as_bytes());
 
-    bytes[0x60..0x60+info.filename.len()].copy_from_slice(&info.filename);
+    bytes[0x60..0x60+state.filename.len()].copy_from_slice(&state.filename);
 
     assert!(bytes.len() == 0x1EB0);
 
@@ -711,22 +721,29 @@ pub fn construct_tm_replay(
         encode_block(&mut bytes[start..start+BLOCK_SIZE], BLOCK_SIZE);
     }
 
-    let date = info.time;
-    let filename = format!(
-        "01-GTME-TMREC_{:02}{:02}{:04}_{:02}{:02}{:02}.gci", 
-        date.month, date.day, date.year,
-        date.hour, date.minute, date.second,
-    );
-
-    (bytes, filename)
+    bytes
 }
 
+/// Construct TM replay from slp file.
+///
+/// Returns GCI file bytes.
+///
+/// Currently does not implement:
+/// - stale moves
+/// - items
+/// - animation speed
+/// - animation blending
+///
+/// # Panics
+/// - If frame is out of bounds.
+/// - If frame + duration is out of bounds.
+/// - If name is longer than 32 bytes
 pub fn construct_tm_replay_from_slp(
     game: &slp_parser::Game, 
-    frame: usize,       // panics if oob
-    duration: usize,    // truncated if longer than 3600
-    name: &str,         // panics if longer than 32 bytes
-) -> (Vec<u8>, String) {
+    frame: usize,
+    duration: usize,
+    name: &str,
+) -> Vec<u8> {
     let info = &game.info;
     let time = info.start_time.fields();
 
@@ -741,14 +758,14 @@ pub fn construct_tm_replay_from_slp(
             .map(|f| {
                 RecInputs {
                     button_flags: (
-                        (f.buttons_mask & buttons_mask::D_PAD_UP)
-                            | ((f.buttons_mask & buttons_mask::A) >> 7)
-                            | ((f.buttons_mask & buttons_mask::B) >> 7)
+                          ((f.buttons_mask & buttons_mask::Z) >> 4)
+                            | ((f.buttons_mask & buttons_mask::R_DIGITAL) >> 4)
+                            | ((f.buttons_mask & buttons_mask::L_DIGITAL) >> 4)
                             | ((f.buttons_mask & buttons_mask::X) >> 7)
                             | ((f.buttons_mask & buttons_mask::Y) >> 7)
-                            | ((f.buttons_mask & buttons_mask::L_DIGITAL) >> 1)
-                            | ((f.buttons_mask & buttons_mask::R_DIGITAL) << 1)
-                            | ((f.buttons_mask & buttons_mask::Z) << 3)
+                            | ((f.buttons_mask & buttons_mask::B) >> 4)
+                            | ((f.buttons_mask & buttons_mask::A) >> 2)
+                            | ((f.buttons_mask & buttons_mask::D_PAD_UP) << 4)
                     ) as u8,
                     stick_x: (f.left_stick_coords[0] * 127.0) as i8,
                     stick_y: (f.left_stick_coords[1] * 127.0) as i8,
@@ -759,15 +776,20 @@ pub fn construct_tm_replay_from_slp(
             }).collect()
     }
 
-    fn state_from_frame(frame: &slp_parser::Frame) -> CharacterState {
+    fn state(starting_char: slp_parser::CharacterColour, frame: &slp_parser::Frame) -> CharacterState {
         CharacterState {
+            // respect zelda/sheik transformation
+            character: slp_parser::CharacterColour::from_character_and_colour(
+               frame.character, 
+               starting_char.costume_idx()
+            ).unwrap(),
             position: [frame.position.x, frame.position.y],
             airborne: frame.is_airborne,
             state: frame.state,
             state_frame: frame.anim_frame,
             direction: frame.direction,
             percent: frame.percent,
-            stale_moves: ArrayVec::new(), // TODO
+            stale_moves: &[],
             anim_velocity: [0.0; 2], // IDK
             self_velocity: [frame.velocity.x, frame.velocity.y],
             hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y],
@@ -776,9 +798,7 @@ pub fn construct_tm_replay_from_slp(
     }
 
     construct_tm_replay(
-        &RecordingInfo {
-            hmn: info.low_starting_character,
-            cpu: info.high_starting_character,
+        &RecordingState {
             stage: info.stage,
             time: RecordingTime {
                 year: time.year,
@@ -795,16 +815,21 @@ pub fn construct_tm_replay_from_slp(
                 cpu_mode: CpuRecordingMode::Playback,
                 cpu_slot: RecordingSlot::Slot1,
                 ..Default::default()
-            }
-        },
-        &InitialState {
+            },
+
             start_frame: (frame as i32) - 123, // start at - 123
-            hmn: state_from_frame(&game.low_port_frames[frame]),
-            cpu: state_from_frame(&game.high_port_frames[frame]),
+            hmn_state: state(info.low_starting_character, &game.low_port_frames[frame]),
+            cpu_state: state(info.high_starting_character, &game.high_port_frames[frame]),
         },
         &InputRecordings {
-            hmn: &[&inputs_over_frames(&game.low_port_frames[frame..frame+duration])],
-            cpu: &[&inputs_over_frames(&game.high_port_frames[frame..frame+duration])],
+            hmn_slots: [
+                Some(&inputs_over_frames(&game.low_port_frames[frame..frame+duration])),
+                None, None, None, None, None
+            ],
+            cpu_slots: [
+                Some(&inputs_over_frames(&game.high_port_frames[frame..frame+duration])),
+                None, None, None, None, None
+            ],
         }
     )
 }

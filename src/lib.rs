@@ -274,13 +274,19 @@ pub struct CharacterState<'a> {
     pub self_velocity: [f32; 2],
     pub hit_velocity: [f32; 2],
     pub ground_velocity: [f32; 2],
+
+    pub prev_position: [f32; 2],
+    pub stick: [f32; 2],
+    pub cstick: [f32; 2],
+    pub prev_stick: [f32; 2],
+    pub trigger: f32,
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct RecInputs {
     /// - z: 0x01
-    /// - r (digital): 0x02
-    /// - l (digital): 0x04
+    /// - r digital: 0x02
+    /// - l digital: 0x04
     /// - x: 0x08
     /// - y: 0x10
     /// - b: 0x20
@@ -506,10 +512,15 @@ pub fn construct_tm_replay(
             let input_offset = 568;
             let dmg_offset = 3680;
 
-            // TEMP
-            //ft_state[input_offset..][..4].copy_from_slice(&(-1.0f32).to_be_bytes());
-            //ft_state[input_offset+8..][..4].copy_from_slice(&(-1.0f32).to_be_bytes());
+            ft_state[input_offset..][..4].copy_from_slice(&st.stick[0].to_be_bytes());
+            ft_state[input_offset+4..][..4].copy_from_slice(&st.stick[1].to_be_bytes());
+            ft_state[input_offset+8..][..4].copy_from_slice(&st.prev_stick[0].to_be_bytes());
+            ft_state[input_offset+12..][..4].copy_from_slice(&st.prev_stick[1].to_be_bytes());
+            ft_state[input_offset+24..][..4].copy_from_slice(&st.cstick[0].to_be_bytes());
+            ft_state[input_offset+28..][..4].copy_from_slice(&st.cstick[1].to_be_bytes());
+            ft_state[input_offset+48..][..4].copy_from_slice(&st.trigger.to_be_bytes());
 
+            // phys struct
             let state_offset = 4;
             ft_state[state_offset..][..4].copy_from_slice(&(st.state.as_u16() as u32).to_be_bytes());
             let direction_bytes = match st.direction {
@@ -728,22 +739,28 @@ pub fn construct_tm_replay(
 ///
 /// Returns GCI file bytes.
 ///
-/// Currently does not implement:
+/// # Unimplemented
 /// - stale moves
 /// - items
 /// - animation speed
 /// - animation blending
 ///
 /// # Panics
-/// - If frame is out of bounds.
 /// - If frame + duration is out of bounds.
-/// - If name is longer than 32 bytes
+/// - If duration is greater than 3600 frames
+/// - If name is longer than 31 bytes
+/// - If name is not ASCII
 pub fn construct_tm_replay_from_slp(
     game: &slp_parser::Game, 
     frame: usize,
     duration: usize,
     name: &str,
 ) -> Vec<u8> {
+    assert!(frame + duration < game.low_port_frames.len());
+    assert!(name.len() < 32);
+    assert!(name.is_ascii());
+    assert!(duration <= 3600);
+
     let info = &game.info;
     let time = info.start_time.fields();
 
@@ -767,16 +784,34 @@ pub fn construct_tm_replay_from_slp(
                             | ((f.buttons_mask & buttons_mask::A) >> 2)
                             | ((f.buttons_mask & buttons_mask::D_PAD_UP) << 4)
                     ) as u8,
-                    stick_x: (f.left_stick_coords[0] * 127.0) as i8,
-                    stick_y: (f.left_stick_coords[1] * 127.0) as i8,
-                    cstick_x: (f.right_stick_coords[0] * 127.0) as i8,
-                    cstick_y: (f.right_stick_coords[1] * 127.0) as i8,
-                    trigger: (f.analog_trigger_value * 255.0) as u8,
+                    stick_x: (f.left_stick_coords[0] * 80.0) as i8,
+                    stick_y: (f.left_stick_coords[1] * 80.0) as i8,
+                    cstick_x: (f.right_stick_coords[0] * 80.0) as i8,
+                    cstick_y: (f.right_stick_coords[1] * 80.0) as i8,
+                    trigger: (f.analog_trigger_value * 140.0) as u8,
                 }
             }).collect()
     }
 
-    fn state(starting_char: slp_parser::CharacterColour, frame: &slp_parser::Frame) -> CharacterState {
+    fn state(
+        starting_char: slp_parser::CharacterColour, 
+        prev_frame: Option<&slp_parser::Frame>,
+        frame: &slp_parser::Frame,
+    ) -> CharacterState<'static> {
+    
+        let prev_position;
+        let prev_stick;
+        match prev_frame {
+            Some(p) => {
+                prev_position = [p.position.x, p.position.y];
+                prev_stick = p.left_stick_coords;
+            }
+            None => {
+                prev_position = [frame.position.x, frame.position.y];
+                prev_stick = [0.0, 0.0];
+            }
+        }
+
         CharacterState {
             // respect zelda/sheik transformation
             character: slp_parser::CharacterColour::from_character_and_colour(
@@ -794,6 +829,12 @@ pub fn construct_tm_replay_from_slp(
             self_velocity: [frame.velocity.x, frame.velocity.y],
             hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y],
             ground_velocity: [frame.ground_x_velocity, 0.0],
+
+            prev_position,
+            prev_stick,
+            stick: frame.left_stick_coords,
+            cstick: frame.right_stick_coords,
+            trigger: frame.analog_trigger_value,
         }
     }
 
@@ -818,16 +859,16 @@ pub fn construct_tm_replay_from_slp(
             },
 
             start_frame: (frame as i32) - 123, // start at - 123
-            hmn_state: state(info.low_starting_character, &game.low_port_frames[frame]),
-            cpu_state: state(info.high_starting_character, &game.high_port_frames[frame]),
+            hmn_state: state(info.low_starting_character, game.low_port_frames.get(frame-1), &game.low_port_frames[frame]),
+            cpu_state: state(info.high_starting_character, game.low_port_frames.get(frame-1), &game.high_port_frames[frame]),
         },
         &InputRecordings {
             hmn_slots: [
-                Some(&inputs_over_frames(&game.low_port_frames[frame..frame+duration])),
+                Some(&inputs_over_frames(&game.low_port_frames[frame+1..frame+duration+1])),
                 None, None, None, None, None
             ],
             cpu_slots: [
-                Some(&inputs_over_frames(&game.high_port_frames[frame..frame+duration])),
+                Some(&inputs_over_frames(&game.high_port_frames[frame+1..frame+duration+1])),
                 None, None, None, None, None
             ],
         }

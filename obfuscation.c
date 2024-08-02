@@ -157,14 +157,13 @@ int decode_block(U8* src, int len) {
     }
     calculate_checksum(src + 16, len - 16, checksum);
 
-    int no_match = 0;
     for (i = 0; i < 16; i++) {
         if (src[i] != checksum[i]) {
-            no_match += 1;
+            return 0xFFFFFFFF;
         }
     }
         
-    return no_match;
+    return 0;
 }
 
 // ENCODE ===================================================================

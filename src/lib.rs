@@ -435,7 +435,7 @@ fn obfuscate_byte(prev: u8, this: u8) -> u8 {
                  ((r4 & 0x40) >> 5) |
                  ((r4 & 0x80) >> 5);
             r4 = r5 & 0xFF;
-        return r4 as u8;
+            return r4 as u8;
         }
         6 => {
             r5 = ((r4 & 0x01) << 2) |
@@ -453,7 +453,8 @@ fn obfuscate_byte(prev: u8, this: u8) -> u8 {
     }
 }
 
-fn encode_block(data: &mut [u8], len: usize) {
+fn encode_block(data: &mut [u8]) {
+    let len = data.len();
     let (checksum, encoded_data) = data.split_at_mut(16);
     calculate_checksum(encoded_data, checksum);
 
@@ -469,215 +470,184 @@ const WEIRD_BLOCK_HEADER: [u8; 16] = [
     1, 0, 0, 0, 2, 0, 0, 0, 0, // idk
 ];
 
-/// Construct TM replay from initial state and inputs.
-///
-/// Returns GCI file bytes.
-pub fn construct_tm_replay(
-    state: &RecordingState, 
-    inputs: &InputRecordings,
-) -> Vec<u8> {
-    // buffer created by unclepunch's tm code
-    let replay_buffer = {
-        let mut bytes = Vec::with_capacity(8192 * 8);
+fn deobfuscate_byte(r3: u8, r4: u8) -> u8 {
+    let b = r3 as u32;
+    let mut r4 = r4 as u32;
 
-        state.write_header(&mut bytes);
+    let r5;
+    match b % 7 {
+        0 => {
+            r5 = ((r4 & 0x01) << 0) |
+                 ((r4 & 0x02) << 1) |
+                 ((r4 & 0x04) << 2) |
+                 ((r4 & 0x08) << 3) |
+                 ((r4 & 0x10) >> 3) |
+                 ((r4 & 0x20) >> 2) |
+                 ((r4 & 0x40) >> 1) |
+                 ((r4 & 0x80) >> 0);
+            r4 = r5 & 0xFF;
+        }
+        1 => {
+            r5 = ((r4 & 0x01) << 1) |
+                 ((r4 & 0x02) << 6) |
+                 ((r4 & 0x04) << 0) |
+                 ((r4 & 0x08) >> 3) |
+                 ((r4 & 0x10) << 1) |
+                 ((r4 & 0x20) >> 1) |
+                 ((r4 & 0x40) >> 3) |
+                 ((r4 & 0x80) >> 1);
+            r4 = r5 & 0xFF;
+        }
+        2 => {
+            r5 = ((r4 & 0x01) << 2) |
+                 ((r4 & 0x02) << 2) |
+                 ((r4 & 0x04) << 4) |
+                 ((r4 & 0x08) << 1) |
+                 ((r4 & 0x10) << 3) |
+                 ((r4 & 0x20) >> 4) |
+                 ((r4 & 0x40) >> 6) |
+                 ((r4 & 0x80) >> 2);
+            r4 = r5 & 0xFF;
+        }
+        3 => {
+            r5 = ((r4 & 0x01) << 4) |
+                 ((r4 & 0x02) >> 1) |
+                 ((r4 & 0x04) << 3) |
+                 ((r4 & 0x08) >> 2) |
+                 ((r4 & 0x10) >> 1) |
+                 ((r4 & 0x20) << 1) |
+                 ((r4 & 0x40) << 1) |
+                 ((r4 & 0x80) >> 5);
+            r4 = r5 & 0xFF;
+        }
+        4 => {
+            r5 = ((r4 & 0x01) << 3) |
+                 ((r4 & 0x02) << 4) |
+                 ((r4 & 0x04) >> 1) |
+                 ((r4 & 0x08) << 4) |
+                 ((r4 & 0x10) << 2) |
+                 ((r4 & 0x20) >> 3) |
+                 ((r4 & 0x40) >> 2) |
+                 ((r4 & 0x80) >> 7);
+            r4 = r5 & 0xFF;
+        }
+        5 => {
+            r5 = ((r4 & 0x01) << 5) |
+                 ((r4 & 0x02) << 5) |
+                 ((r4 & 0x04) << 5) |
+                 ((r4 & 0x08) >> 0) |
+                 ((r4 & 0x10) >> 2) |
+                 ((r4 & 0x20) >> 5) |
+                 ((r4 & 0x40) >> 5) |
+                 ((r4 & 0x80) >> 3);
+            r4 = r5 & 0xFF;
+        }
+        6 => {
+            r5 = ((r4 & 0x01) << 6) |
+                 ((r4 & 0x02) << 0) |
+                 ((r4 & 0x04) >> 2) |
+                 ((r4 & 0x08) << 2) |
+                 ((r4 & 0x10) << 0) |
+                 ((r4 & 0x20) << 2) |
+                 ((r4 & 0x40) >> 4) |
+                 ((r4 & 0x80) >> 4);
+            r4 = r5 & 0xFF;
+        }
+        _ => unreachable!(),
+    }
 
-        let screenshot_offset = bytes.len();
-        let screenshot_size = 2 * 96 * 72;
-        bytes.resize(68 + screenshot_size, 0u8); // black screen for now
+    r4 ^= ENCODE_LUT[(b % 13) as usize];
+    r4 ^= r3 as u32;
+    return r4 as u8;
+}
 
-        let recording_offset = bytes.len();
 
-        //let mut recording_save = std::fs::read("/home/alex/.config/SlippiOnline/GC/USA/Card A/01-GTME-TMREC_07112024_044722.gci.recsave").unwrap();
-        ////let mut recording_save = std::fs::read("/home/alex/.config/SlippiOnline/GC/USA/Card A/01-GTME-TMREC_07282024_165306.gci.recsave").unwrap();
-        //recording_save.resize(RECORDING_SIZE + 257, 0u8);
+fn decode_block(src: &mut [u8]) -> i32 {
+    let mut checksum = [0u8; 16];
+    let mut x = src[15];
+    for i in 16..src.len() {
+        let y = src[i];
+        src[i] = deobfuscate_byte(x, y);
+        x = y;
+    }
+    calculate_checksum(&src[16..], &mut checksum);
 
-        let mut recording_save = vec![0u8; RECORDING_SIZE + 257]; // pad a bit for compression algo
-        let rec_start = SAVESTATE_SIZE+MATCHINIT_SIZE;
-        recording_save[0..rec_start].copy_from_slice(&DEFAULT_SAVESTATE_AND_MATCHINIT[..rec_start]);
-
-        let savestate_offset = MATCHINIT_SIZE;
-        recording_save[savestate_offset+4..][..4].copy_from_slice(&state.start_frame.to_be_bytes());
-
-        // overwrite MatchInit values
-
-        let stage = state.stage.to_u16_external();
-        recording_save[0x0E..][..2].copy_from_slice(&stage.to_be_bytes());
-
-        // write FtState values
+    for i in 0..16 {
+        if src[i] != checksum[i] {
+            return -1;
+        }
+    }
         
-        fn write_ft_state_data(ft_state: &mut [u8], st: &CharacterState) {
-            // nested struct offsets
-            let phys_offset = 40;
-            let input_offset = 568;
-            let dmg_offset = 3680;
+    return 0;
+}
 
-            ft_state[input_offset..][..4].copy_from_slice(&st.stick[0].to_be_bytes());
-            ft_state[input_offset+4..][..4].copy_from_slice(&st.stick[1].to_be_bytes());
-            ft_state[input_offset+8..][..4].copy_from_slice(&st.prev_stick[0].to_be_bytes());
-            ft_state[input_offset+12..][..4].copy_from_slice(&st.prev_stick[1].to_be_bytes());
-            ft_state[input_offset+24..][..4].copy_from_slice(&st.cstick[0].to_be_bytes());
-            ft_state[input_offset+28..][..4].copy_from_slice(&st.cstick[1].to_be_bytes());
-            ft_state[input_offset+48..][..4].copy_from_slice(&st.trigger.to_be_bytes());
+// panic on invalid gci file.
+pub fn read_replay_buffer(gci_file: &mut [u8]) -> Vec<u8> {
+    let block_count = u16::from_be_bytes(gci_file[0x38..0x3A].try_into().unwrap()) as usize;
+    let start = 0x1EB0;
+    let decoded_len = 400 - 32 + (block_count-1)*(BLOCK_SIZE - 32);
+    let mut decoded = Vec::with_capacity(decoded_len);
 
-            // phys struct
-            let state_offset = 4;
-            ft_state[state_offset..][..4].copy_from_slice(&(st.state.as_u16() as u32).to_be_bytes());
-            let direction_bytes = match st.direction {
-                slp_parser::Direction::Left => (-1.0f32).to_be_bytes(),
-                slp_parser::Direction::Right => 1.0f32.to_be_bytes(),
-            };
-            ft_state[state_offset+4..][..4].copy_from_slice(&direction_bytes);
-            ft_state[state_offset+8..][..4].copy_from_slice(&st.state_frame.to_be_bytes());
-            ft_state[state_offset+12..][..4].copy_from_slice(&(1.0f32).to_be_bytes()); // state speed
-            ft_state[state_offset+16..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // state blend
-            
-            let vel_offset = phys_offset;
-            ft_state[vel_offset+0..][..4].copy_from_slice(&st.anim_velocity[0].to_be_bytes()); // anim_vel.x
-            ft_state[vel_offset+4..][..4].copy_from_slice(&st.anim_velocity[1].to_be_bytes()); // anim_vel.y
-            ft_state[vel_offset+12+0..][..4].copy_from_slice(&st.self_velocity[0].to_be_bytes()); // self_vel.x
-            ft_state[vel_offset+12+4..][..4].copy_from_slice(&st.self_velocity[1].to_be_bytes()); // self_vel.y
-            ft_state[vel_offset+24+0..][..4].copy_from_slice(&st.hit_velocity[0].to_be_bytes()); // kb_vel.x
-            ft_state[vel_offset+24+4..][..4].copy_from_slice(&st.hit_velocity[1].to_be_bytes()); // kb_vel.y
-            ft_state[vel_offset+120+0..][..4].copy_from_slice(&st.ground_velocity[0].to_be_bytes()); // selfVelGround.x
-            ft_state[vel_offset+120+4..][..4].copy_from_slice(&st.ground_velocity[1].to_be_bytes()); // selfVelGround.y
-            
-            let pos_offset = phys_offset + 12*3 + 4*6;
-            let x_pos_bytes = st.position[0].to_be_bytes();
-            let y_pos_bytes = st.position[1].to_be_bytes();
-            ft_state[pos_offset+0..][..4].copy_from_slice(&x_pos_bytes); // pos.x
-            ft_state[pos_offset+4..][..4].copy_from_slice(&y_pos_bytes); // pos.y
-            //ft_state[pos_offset+8..][..4].copy_from_slice(&(10.0f32).to_be_bytes());  // pos_delta.x
-            //ft_state[pos_offset+12..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // pos_delta.y
-            //ft_state[pos_offset+16..][..4].copy_from_slice(&x_pos_bytes); // pos_prev.x
-            //ft_state[pos_offset+20..][..4].copy_from_slice(&y_pos_bytes); // pos_prev.y
+    assert!(decode_block(&mut gci_file[start..][..400]) == 0);
 
-            let airborne_offset = phys_offset + 108; // air_state in struct phys
-            ft_state[airborne_offset..][..4].copy_from_slice(&(st.airborne as u32).to_be_bytes());
+    // skip checksum and metadata
+    decoded.extend_from_slice(&gci_file[start+32..][..400-32]);
 
-            let percent_offset = dmg_offset + 4;
-            let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
-            ft_state[percent_offset..][..4].copy_from_slice(&percent_bytes);
-            ft_state[percent_offset+8..][..4].copy_from_slice(&percent_bytes); // temp percent???
-            
-            // action state functions
-            let fns_offset = (st.state.as_u16() as usize) * 0x20;
-            let fns = &ACTION_FN_LOOKUP_TABLE[fns_offset+0xC..fns_offset+0x20]; // 5 fn pointers
-            ft_state[0x10CC..][..4].copy_from_slice(&fns[4..8]); // IASA
-            ft_state[0x10CC..][4..8].copy_from_slice(&fns[0..4]); // Anim
-            ft_state[0x10CC..][8..20].copy_from_slice(&fns[8..20]); // Phys, Coll, Cam
+    for i in 1..block_count {
+        let block_start = start + 400 + (i-1)*BLOCK_SIZE;
+        assert!(decode_block(&mut gci_file[block_start..][..BLOCK_SIZE]) == 0);
+        decoded.extend_from_slice(&gci_file[block_start+32..][..BLOCK_SIZE-32]);
+    }
 
-            // stale moves
+    decoded
+}
 
-            let stale_moves_trunc = &st.stale_moves[0..st.stale_moves.len().min(10)];
+// Overwrites the RecordingSave in a replay buffer. You probably don't want this.
+//
+// Will resize recording_save.
+pub fn overwrite_recsave(replay_buffer: &mut Vec<u8>, recording_save: &mut Vec<u8>) {
+    let recording_offset = u32::from_be_bytes(replay_buffer[60..64].try_into().unwrap()) as usize;
+    let menu_offset = u32::from_be_bytes(replay_buffer[64..68].try_into().unwrap()) as usize;
 
-            let stale_offset = 8972;
-            let next_stale_move_idx = (stale_moves_trunc.len() as u32) % 10;
-            ft_state[stale_offset..][..4].copy_from_slice(&next_stale_move_idx.to_be_bytes());
+    let menu_settings: [u8; 6] = replay_buffer[menu_offset..][..6].try_into().unwrap();
 
-            for i in 0..stale_moves_trunc.len() {
-                let offset = stale_offset + 4 + 4*i;
-                let move_id = stale_moves_trunc[i] as u16;
-                ft_state[offset..][..2].copy_from_slice(&move_id.to_be_bytes());
-                ft_state[offset+2..][..2].copy_from_slice(&[0, 0]); // # of action states this game (unused probably)
-            }
-           
-            for i in stale_moves_trunc.len()..10 {
-                let offset = stale_offset + 4 + 4*i;
-                ft_state[offset..][..4].copy_from_slice(&[0, 0, 0, 0]);
-            }
-        }
+    recording_save.resize(RECORDING_SIZE + 257, 0u8);
 
-        let st_offset = 312; // savestate offset - skip MatchInit in RecordingSave
-        let ft_state_offset = 8+EVENT_DATASIZE; // FtState array offset - fields in Savestate;
-        let ft_state_size = 9016;
-        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset..][..ft_state_size], &state.hmn_state);
-        write_ft_state_data(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size], &state.cpu_state);
+    // compress
+    replay_buffer.resize(recording_offset + RECORDING_SIZE, 0u8);
+    let recording_compressed_size = compress::lz77_compress(
+        &recording_save, 
+        RECORDING_SIZE as u32, 
+        &mut replay_buffer[recording_offset..]
+    ) as usize;
+    replay_buffer.resize(recording_offset+recording_compressed_size, 0u8);
 
-        // write inputs
+    let new_menu_offset = replay_buffer.len();
+    replay_buffer.extend_from_slice(&menu_settings);
+    replay_buffer[64..68].copy_from_slice(&(new_menu_offset as u32).to_be_bytes());
+}
 
-        recording_save[rec_start+0..rec_start+4].copy_from_slice(&0u32.to_be_bytes()); // start_frame
-        recording_save[rec_start+4..rec_start+8].copy_from_slice(&60u32.to_be_bytes()); // num_frames
-        for i in 0..60 {
-            let o = rec_start+8+6*i;
-            recording_save[o..o+6].copy_from_slice(&[
-                0u8, // buttons
-                127i8 as u8,
-                0,
-                0,
-                0,
-                0,
-            ]); // inputs
-        }
-
-        fn write_inputs(slot: &mut [u8], start_frame: i32, inputs: Option<&[RecInputs]>) {
-            // if None or len == 0
-            if !inputs.is_some_and(|i| !i.is_empty()) {
-                slot[0..4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
-                slot[4..8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
-                return;
-            }
-
-            let inputs = inputs.unwrap();
-
-            slot[0..4].copy_from_slice(&start_frame.to_be_bytes()); // start frame
-            slot[4..8].copy_from_slice(&(inputs.len() as u32).to_be_bytes());    // num_frames
-
-            for frame in 0..inputs.len() {
-                let offset = 8 + frame*6;
-                let input = inputs[frame];
-
-                slot[offset..offset+6].copy_from_slice(&[
-                    input.button_flags,
-                    input.stick_x as u8,
-                    input.stick_y as u8,
-                    input.cstick_x as u8,
-                    input.cstick_y as u8,
-                    input.trigger,
-                ]);
-            }
-        }
-
-        // hmn inputs
-        for i in 0..REC_SLOTS {
-            let input_data_start = rec_start + i*REC_SLOT_SIZE;
-            let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
-            write_inputs(slot, state.start_frame, inputs.hmn_slots[i]);
-        }
-
-        // cpu inputs
-        for i in 0..REC_SLOTS {
-            let input_data_start = rec_start + (i+6)*REC_SLOT_SIZE;
-            let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
-            write_inputs(slot, state.start_frame, inputs.cpu_slots[i]);
-        }
-
-        // compress
-        bytes.resize(recording_offset + RECORDING_SIZE, 0u8);
-        let recording_compressed_size = compress::lz77_compress(
-            &recording_save, 
-            RECORDING_SIZE as u32, 
-            &mut bytes[recording_offset..]
-        ) as usize;
-        bytes.resize(recording_offset+recording_compressed_size, 0u8);
-
-        let menu_settings_offset = bytes.len();
-
-        state.write_menu_settings(&mut bytes);
-
-        bytes[56..60].copy_from_slice(&(screenshot_offset as u32).to_be_bytes());
-        bytes[60..64].copy_from_slice(&(recording_offset as u32).to_be_bytes());
-        bytes[64..68].copy_from_slice(&(menu_settings_offset as u32).to_be_bytes());
-
-        bytes
-    };
-
+/// Construct TM replay from a raw replay buffer. You probably don't want this.
+///
+/// Anatomy of a replay buffer:
+/// ```c
+/// struct ReplayBuffer {
+///     ExportHeader header;
+///     RecordingSaveCompressed recsave_compressed;
+///     MenuSettings menu_settings;
+/// };
+/// ```
+/// This struct is just provided for clarity - it is not a real struct used in Training-Mode/patch/events/lab/source/lab.c.
+pub fn construct_tm_replay_from_replay_buffer(
+    date: RecordingTime,
+    filename: &[u8; 32],
+    replay_buffer: &[u8],
+) -> Vec<u8> {
     // for the gci file
     let mut bytes = Vec::with_capacity(8096 * 8);
 
     bytes.extend_from_slice(DEFAULT_GCI_HEADER);
 
-    let date = state.time;
     let ident = "GTME01";
     bytes[0..6].copy_from_slice(ident.as_bytes());
     let gci_inner_name = format!(
@@ -688,7 +658,7 @@ pub fn construct_tm_replay(
     bytes[8..0x28].fill(0);
     bytes[8..8+gci_inner_name.len()].copy_from_slice(gci_inner_name.as_bytes());
 
-    bytes[0x60..0x60+state.filename.len()].copy_from_slice(&state.filename);
+    bytes[0x60..][..32].copy_from_slice(filename);
 
     assert!(bytes.len() == 0x1EB0);
 
@@ -725,14 +695,212 @@ pub fn construct_tm_replay(
     // fill out last block
     bytes.resize(0x1EB0 + 400 + BLOCK_SIZE*full_blocks, 0u8);
 
-    encode_block(&mut bytes[0x1EB0..0x1EB0+400], 400);
+    encode_block(&mut bytes[0x1EB0..0x1EB0+400]);
 
     for i in 0..full_blocks {
         let start = 0x1EB0 + 400 + BLOCK_SIZE*i;
-        encode_block(&mut bytes[start..start+BLOCK_SIZE], BLOCK_SIZE);
+        encode_block(&mut bytes[start..start+BLOCK_SIZE]);
     }
 
     bytes
+}
+
+/// Construct TM replay from initial state and inputs.
+///
+/// Returns GCI file bytes.
+pub fn construct_tm_replay(
+    state: &RecordingState, 
+    inputs: &InputRecordings,
+) -> Vec<u8> {
+    // buffer created by unclepunch's tm code
+    let mut bytes = Vec::with_capacity(8192 * 8);
+
+    state.write_header(&mut bytes);
+
+    let screenshot_offset = bytes.len();
+    let screenshot_size = 2 * 96 * 72;
+    bytes.resize(68 + screenshot_size, 0u8); // black screen for now
+
+    let recording_offset = bytes.len();
+
+    let mut recording_save = vec![0u8; RECORDING_SIZE + 257]; // pad a bit for compression algo
+    let rec_start = SAVESTATE_SIZE+MATCHINIT_SIZE;
+    recording_save[0..rec_start].copy_from_slice(&DEFAULT_SAVESTATE_AND_MATCHINIT[..rec_start]);
+
+    let savestate_offset = MATCHINIT_SIZE;
+    recording_save[savestate_offset+4..][..4].copy_from_slice(&state.start_frame.to_be_bytes());
+
+    // overwrite MatchInit values
+
+    let stage = state.stage.to_u16_external();
+    recording_save[0x0E..][..2].copy_from_slice(&stage.to_be_bytes());
+
+    // write FtState values
+    
+    fn write_ft_state_data(ft_state: &mut [u8], st: &CharacterState) {
+        // nested struct offsets
+        let phys_offset = 40;
+        let input_offset = 568;
+        let dmg_offset = 3680;
+
+        ft_state[input_offset..][..4].copy_from_slice(&st.stick[0].to_be_bytes());
+        ft_state[input_offset+4..][..4].copy_from_slice(&st.stick[1].to_be_bytes());
+        ft_state[input_offset+8..][..4].copy_from_slice(&st.prev_stick[0].to_be_bytes());
+        ft_state[input_offset+12..][..4].copy_from_slice(&st.prev_stick[1].to_be_bytes());
+        ft_state[input_offset+24..][..4].copy_from_slice(&st.cstick[0].to_be_bytes());
+        ft_state[input_offset+28..][..4].copy_from_slice(&st.cstick[1].to_be_bytes());
+        ft_state[input_offset+48..][..4].copy_from_slice(&st.trigger.to_be_bytes());
+
+        // phys struct
+        let state_offset = 4;
+        ft_state[state_offset..][..4].copy_from_slice(&(st.state.as_u16() as u32).to_be_bytes());
+        let direction_bytes = match st.direction {
+            slp_parser::Direction::Left => (-1.0f32).to_be_bytes(),
+            slp_parser::Direction::Right => 1.0f32.to_be_bytes(),
+        };
+        ft_state[state_offset+4..][..4].copy_from_slice(&direction_bytes);
+        ft_state[state_offset+8..][..4].copy_from_slice(&st.state_frame.to_be_bytes());
+        ft_state[state_offset+12..][..4].copy_from_slice(&(1.0f32).to_be_bytes()); // state speed
+        ft_state[state_offset+16..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // state blend
+        
+        let vel_offset = phys_offset;
+        ft_state[vel_offset+0..][..4].copy_from_slice(&st.anim_velocity[0].to_be_bytes()); // anim_vel.x
+        ft_state[vel_offset+4..][..4].copy_from_slice(&st.anim_velocity[1].to_be_bytes()); // anim_vel.y
+        ft_state[vel_offset+12+0..][..4].copy_from_slice(&st.self_velocity[0].to_be_bytes()); // self_vel.x
+        ft_state[vel_offset+12+4..][..4].copy_from_slice(&st.self_velocity[1].to_be_bytes()); // self_vel.y
+        ft_state[vel_offset+24+0..][..4].copy_from_slice(&st.hit_velocity[0].to_be_bytes()); // kb_vel.x
+        ft_state[vel_offset+24+4..][..4].copy_from_slice(&st.hit_velocity[1].to_be_bytes()); // kb_vel.y
+        ft_state[vel_offset+120+0..][..4].copy_from_slice(&st.ground_velocity[0].to_be_bytes()); // selfVelGround.x
+        ft_state[vel_offset+120+4..][..4].copy_from_slice(&st.ground_velocity[1].to_be_bytes()); // selfVelGround.y
+        
+        let pos_offset = phys_offset + 12*3 + 4*6;
+        let x_pos_bytes = st.position[0].to_be_bytes();
+        let y_pos_bytes = st.position[1].to_be_bytes();
+        ft_state[pos_offset+0..][..4].copy_from_slice(&x_pos_bytes); // pos.x
+        ft_state[pos_offset+4..][..4].copy_from_slice(&y_pos_bytes); // pos.y
+        //ft_state[pos_offset+8..][..4].copy_from_slice(&(10.0f32).to_be_bytes());  // pos_delta.x
+        //ft_state[pos_offset+12..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // pos_delta.y
+        //ft_state[pos_offset+16..][..4].copy_from_slice(&x_pos_bytes); // pos_prev.x
+        //ft_state[pos_offset+20..][..4].copy_from_slice(&y_pos_bytes); // pos_prev.y
+
+        let airborne_offset = phys_offset + 108; // air_state in struct phys
+        ft_state[airborne_offset..][..4].copy_from_slice(&(st.airborne as u32).to_be_bytes());
+
+        let percent_offset = dmg_offset + 4;
+        let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
+        ft_state[percent_offset..][..4].copy_from_slice(&percent_bytes);
+        ft_state[percent_offset+8..][..4].copy_from_slice(&percent_bytes); // temp percent???
+        
+        // action state functions
+        let fns_offset = (st.state.as_u16() as usize) * 0x20;
+        let fns = &ACTION_FN_LOOKUP_TABLE[fns_offset+0xC..fns_offset+0x20]; // 5 fn pointers
+        ft_state[0x10CC..][..4].copy_from_slice(&fns[4..8]); // IASA
+        ft_state[0x10CC..][4..8].copy_from_slice(&fns[0..4]); // Anim
+        ft_state[0x10CC..][8..20].copy_from_slice(&fns[8..20]); // Phys, Coll, Cam
+
+        // stale moves
+
+        let stale_moves_trunc = &st.stale_moves[0..st.stale_moves.len().min(10)];
+
+        let stale_offset = 8972;
+        let next_stale_move_idx = (stale_moves_trunc.len() as u32) % 10;
+        ft_state[stale_offset..][..4].copy_from_slice(&next_stale_move_idx.to_be_bytes());
+
+        for i in 0..stale_moves_trunc.len() {
+            let offset = stale_offset + 4 + 4*i;
+            let move_id = stale_moves_trunc[i] as u16;
+            ft_state[offset..][..2].copy_from_slice(&move_id.to_be_bytes());
+            ft_state[offset+2..][..2].copy_from_slice(&[0, 0]); // # of action states this game (unused probably)
+        }
+       
+        for i in stale_moves_trunc.len()..10 {
+            let offset = stale_offset + 4 + 4*i;
+            ft_state[offset..][..4].copy_from_slice(&[0, 0, 0, 0]);
+        }
+    }
+
+    let st_offset = 312; // savestate offset - skip MatchInit in RecordingSave
+    let ft_state_offset = 8+EVENT_DATASIZE; // FtState array offset - fields in Savestate;
+    let ft_state_size = 9016;
+    write_ft_state_data(&mut recording_save[st_offset+ft_state_offset..][..ft_state_size], &state.hmn_state);
+    write_ft_state_data(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size], &state.cpu_state);
+
+    // write inputs
+
+    recording_save[rec_start+0..rec_start+4].copy_from_slice(&0u32.to_be_bytes()); // start_frame
+    recording_save[rec_start+4..rec_start+8].copy_from_slice(&60u32.to_be_bytes()); // num_frames
+    for i in 0..60 {
+        let o = rec_start+8+6*i;
+        recording_save[o..o+6].copy_from_slice(&[
+            0u8, // buttons
+            127i8 as u8,
+            0,
+            0,
+            0,
+            0,
+        ]); // inputs
+    }
+
+    fn write_inputs(slot: &mut [u8], start_frame: i32, inputs: Option<&[RecInputs]>) {
+        // if None or len == 0
+        if !inputs.is_some_and(|i| !i.is_empty()) {
+            slot[0..4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
+            slot[4..8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
+            return;
+        }
+
+        let inputs = inputs.unwrap();
+
+        slot[0..4].copy_from_slice(&start_frame.to_be_bytes()); // start frame
+        slot[4..8].copy_from_slice(&(inputs.len() as u32).to_be_bytes());    // num_frames
+
+        for frame in 0..inputs.len() {
+            let offset = 8 + frame*6;
+            let input = inputs[frame];
+
+            slot[offset..offset+6].copy_from_slice(&[
+                input.button_flags,
+                input.stick_x as u8,
+                input.stick_y as u8,
+                input.cstick_x as u8,
+                input.cstick_y as u8,
+                input.trigger,
+            ]);
+        }
+    }
+
+    // hmn inputs
+    for i in 0..REC_SLOTS {
+        let input_data_start = rec_start + i*REC_SLOT_SIZE;
+        let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
+        write_inputs(slot, state.start_frame, inputs.hmn_slots[i]);
+    }
+
+    // cpu inputs
+    for i in 0..REC_SLOTS {
+        let input_data_start = rec_start + (i+6)*REC_SLOT_SIZE;
+        let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
+        write_inputs(slot, state.start_frame, inputs.cpu_slots[i]);
+    }
+
+    // compress
+    bytes.resize(recording_offset + RECORDING_SIZE, 0u8);
+    let recording_compressed_size = compress::lz77_compress(
+        &recording_save, 
+        RECORDING_SIZE as u32, 
+        &mut bytes[recording_offset..]
+    ) as usize;
+    bytes.resize(recording_offset+recording_compressed_size, 0u8);
+
+    let menu_settings_offset = bytes.len();
+
+    state.write_menu_settings(&mut bytes);
+
+    bytes[56..60].copy_from_slice(&(screenshot_offset as u32).to_be_bytes());
+    bytes[60..64].copy_from_slice(&(recording_offset as u32).to_be_bytes());
+    bytes[64..68].copy_from_slice(&(menu_settings_offset as u32).to_be_bytes());
+
+    construct_tm_replay_from_replay_buffer(state.time, &state.filename, &bytes)
 }
 
 /// Construct TM replay from slp file.

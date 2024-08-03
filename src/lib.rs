@@ -267,7 +267,7 @@ pub struct CharacterState<'a> {
     pub state_frame: f32,
     pub direction: slp_parser::Direction,
     pub percent: f32,
-
+    pub last_ground_idx: u32,
     /// Truncated to the first ten items.
     pub stale_moves: &'a [StaleableMoves],
     pub anim_velocity: [f32; 2],
@@ -742,6 +742,8 @@ pub fn construct_tm_replay(
         let phys_offset = 40;
         let input_offset = 568;
         let dmg_offset = 3680;
+        let collision_offset = 676; // CollData
+        let playerblock_offset = 4396*2;
 
         ft_state[input_offset..][..4].copy_from_slice(&st.stick[0].to_be_bytes());
         ft_state[input_offset+4..][..4].copy_from_slice(&st.stick[1].to_be_bytes());
@@ -790,11 +792,14 @@ pub fn construct_tm_replay(
         let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
         ft_state[percent_offset..][..4].copy_from_slice(&percent_bytes);
         ft_state[percent_offset+8..][..4].copy_from_slice(&percent_bytes); // temp percent???
+    
+        // collision data
+        ft_state[collision_offset..][332..336].copy_from_slice(&st.last_ground_idx.to_be_bytes());
         
         // action state functions
         let fns_offset = (st.state.as_u16() as usize) * 0x20;
         let fns = &ACTION_FN_LOOKUP_TABLE[fns_offset+0xC..fns_offset+0x20]; // 5 fn pointers
-        ft_state[0x10CC..][..4].copy_from_slice(&fns[4..8]); // IASA
+        ft_state[0x10CC..][0..4].copy_from_slice(&fns[4..8]); // IASA
         ft_state[0x10CC..][4..8].copy_from_slice(&fns[0..4]); // Anim
         ft_state[0x10CC..][8..20].copy_from_slice(&fns[8..20]); // Phys, Coll, Cam
 
@@ -817,6 +822,12 @@ pub fn construct_tm_replay(
             let offset = stale_offset + 4 + 4*i;
             ft_state[offset..][..4].copy_from_slice(&[0, 0, 0, 0]);
         }
+
+        // playerblock data
+        let character = st.character.character().to_u8_external().unwrap();
+        let costume = st.character.costume_idx();
+        ft_state[playerblock_offset..][4..8].copy_from_slice(&(character as u32).to_be_bytes());
+        ft_state[playerblock_offset..][68] = costume;
     }
 
     let st_offset = 312; // savestate offset - skip MatchInit in RecordingSave
@@ -988,6 +999,7 @@ pub fn construct_tm_replay_from_slp(
             ).unwrap(),
             position: [frame.position.x, frame.position.y],
             airborne: frame.is_airborne,
+            last_ground_idx: frame.last_ground_idx as u32,
             state: frame.state,
             state_frame: frame.anim_frame,
             direction: frame.direction,

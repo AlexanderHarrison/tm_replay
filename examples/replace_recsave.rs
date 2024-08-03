@@ -1,4 +1,4 @@
-const USAGE: &'static str = "replace_recsave <out gci> <target gci> <recsave>";
+const USAGE: &'static str = "replace_recsave <out gci> <target gci> <source recsave>";
 
 fn main() {
     let mut args = std::env::args();

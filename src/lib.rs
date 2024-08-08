@@ -199,7 +199,7 @@ pub fn dolphin_gci_filename(time: RecordingTime) -> String {
 pub struct RecordingState<'a> {
     pub time: RecordingTime,
     /// Name to show when browsing in Training Mode.
-    pub filename: [u8; 32], // ascii
+    pub filename: [u8; 31], // ascii
     pub menu_settings: RecordingMenuSettings,
 
     /// Melee starts at frame -123. 'GO' disappears on frame 0.
@@ -259,28 +259,75 @@ impl RecordingState<'_> {
 }
 
 #[derive(Clone, Debug)]
+/// Initial state for a character.
+///
+/// Note that this struct has a Default implementation.
 pub struct CharacterState<'a> {
     pub character: slp_parser::CharacterColour,
-    pub position: [f32; 2],
+    pub position: [f32; 3],
+    pub prev_position: [f32; 3],
     pub airborne: bool,
     pub state: slp_parser::ActionState,
     pub state_frame: f32,
     pub state_speed: f32,
+    pub state_blend: f32,
+    /// I could not tell you how to use this.
+    /// Controls character rotation. Keep zeroed to be safe.
+    pub x_rotn_rot: [f32; 4],
     pub direction: slp_parser::Direction,
     pub percent: f32,
     pub last_ground_idx: u32,
     /// Truncated to the first ten items.
     pub stale_moves: &'a [StaleableMoves],
-    pub anim_velocity: [f32; 2],
-    pub self_velocity: [f32; 2],
-    pub hit_velocity: [f32; 2],
-    pub ground_velocity: [f32; 2],
+    pub anim_velocity: [f32; 3],
+    pub self_velocity: [f32; 3],
+    pub hit_velocity: [f32; 3],
+    pub ground_velocity: [f32; 3],
 
-    pub prev_position: [f32; 2],
+    /// Generic character state variable, used for various things.
+    /// - During hitstun and hitstop: the number of frames of hitstun remaining
+    pub char_state_var_1: f32,
+
+    /// State flags. 
+    /// See https://github.com/project-slippi/slippi-wiki/blob/master/SPEC.md#state-bit-flags-1 for more information.
+    pub state_flags: [u8; 5],
+
+    pub hitlag_frames_left: f32,
     pub stick: [f32; 2],
     pub cstick: [f32; 2],
     pub prev_stick: [f32; 2],
     pub trigger: f32,
+}
+
+impl Default for CharacterState<'static> {
+    fn default() -> Self {
+        CharacterState {
+            character: slp_parser::Character::Peach.neutral(),
+            position: [0.0, 0.0, 0.0],
+            airborne: false,
+            direction: slp_parser::Direction::Left,
+            state: slp_parser::ActionState::Standard(slp_parser::StandardActionState::Wait),
+            state_frame: 0.0,
+            percent: 0.0,
+            stale_moves: &[],
+            anim_velocity: [0.0; 3],
+            self_velocity: [0.0; 3],
+            hit_velocity: [0.0; 3],
+            ground_velocity: [0.0; 3],
+            hitlag_frames_left: 0.0,
+            char_state_var_1: 0.0,
+            prev_position: [0.0; 3],
+            stick: [0.0; 2],
+            cstick: [0.0; 2],
+            prev_stick: [0.0; 2],
+            state_flags: [0; 5],
+            trigger: 0.0,
+            state_speed: 1.0,
+            state_blend: 0.0,
+            x_rotn_rot: [0.0, 0.0, 0.0, 0.0],
+            last_ground_idx: 0,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -315,6 +362,16 @@ pub struct InputRecordings<'a> {
 
     /// Each slot is truncated to 3600 frames.
     pub cpu_slots: [Option<&'a [RecInputs]>; 6],
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum ReplayCreationError {
+    RecordingOutOfBounds,
+    DurationTooLong,
+    FilenameTooLong,
+    FilenameNotASCII,
+    SpecialActionState,
+    ZeldaOrSheik,
 }
 
 const EVENT_DATASIZE: usize = 512;
@@ -641,9 +698,9 @@ pub fn overwrite_recsave(replay_buffer: &mut Vec<u8>, recording_save: &mut Vec<u
 /// This struct is just provided for clarity - it is not a real struct used in Training-Mode/patch/events/lab/source/lab.c.
 pub fn construct_tm_replay_from_replay_buffer(
     date: RecordingTime,
-    filename: &[u8; 32],
+    filename: &[u8; 31],
     replay_buffer: &[u8],
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ReplayCreationError> {
     // for the gci file
     let mut bytes = Vec::with_capacity(8096 * 8);
 
@@ -659,7 +716,7 @@ pub fn construct_tm_replay_from_replay_buffer(
     bytes[8..0x28].fill(0);
     bytes[8..8+gci_inner_name.len()].copy_from_slice(gci_inner_name.as_bytes());
 
-    bytes[0x60..][..32].copy_from_slice(filename);
+    bytes[0x60..][..31].copy_from_slice(filename);
 
     assert!(bytes.len() == 0x1EB0);
 
@@ -703,16 +760,44 @@ pub fn construct_tm_replay_from_replay_buffer(
         encode_block(&mut bytes[start..start+BLOCK_SIZE]);
     }
 
-    bytes
+    Ok(bytes)
+}
+
+fn is_hitstun(s: slp_parser::ActionState) -> bool {
+    match s {
+        slp_parser::ActionState::Standard(s) if (78..95).contains(&s.as_u16()) => true,
+        _ => false,
+    }
 }
 
 /// Construct TM replay from initial state and inputs.
 ///
 /// Returns GCI file bytes.
+///
+/// # Errors
+/// - If the length of any recording slot is greater than 3600 frames
+/// - If either character is in a special action state (will be supported in the future)
+/// - If either character is Zelda or Sheik (Very buggy at the moment - may be supported in the future)
 pub fn construct_tm_replay(
     state: &RecordingState, 
     inputs: &InputRecordings,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ReplayCreationError> {
+    if state.hmn_state.character.character() == slp_parser::Character::Zelda 
+        || state.hmn_state.character.character() == slp_parser::Character::Sheik 
+        || state.cpu_state.character.character() == slp_parser::Character::Zelda 
+        || state.cpu_state.character.character() == slp_parser::Character::Sheik 
+    { 
+        return Err(ReplayCreationError::ZeldaOrSheik) 
+    }
+
+    if let slp_parser::ActionState::Special(_) = state.hmn_state.state {
+        return Err(ReplayCreationError::SpecialActionState)
+    }
+
+    if let slp_parser::ActionState::Special(_) = state.cpu_state.state {
+        return Err(ReplayCreationError::SpecialActionState)
+    }
+
     // buffer created by unclepunch's tm code
     let mut bytes = Vec::with_capacity(8192 * 8);
 
@@ -738,106 +823,144 @@ pub fn construct_tm_replay(
 
     // write FtState values
     
-    fn write_ft_state_data(ft_state: &mut [u8], st: &CharacterState) {
+    fn write_ft_state(ft_state: &mut [u8], st: &CharacterState) {
         // nested struct offsets
         let phys_offset = 40;
         let input_offset = 568;
         let collision_offset = 676; // CollData
         let camera_box_offset = 1092; // CameraBox
+        let flags_offset = 3356;
         let char_state_offset = 3592;
         let dmg_offset = 3680;
         let playerblock_offset = 4396*2;
+        let stale_offset = 8972;
 
         // TEMP
-        ft_state[char_state_offset..][0..4].copy_from_slice(&(0u32).to_be_bytes());
+        // TODO set to zero for airdodge landing
+        //ft_state[char_state_offset..][0..4].copy_from_slice(&(0u32).to_be_bytes());
 
-        ft_state[input_offset..][..4].copy_from_slice(&st.stick[0].to_be_bytes());
-        ft_state[input_offset+4..][..4].copy_from_slice(&st.stick[1].to_be_bytes());
-        ft_state[input_offset+8..][..4].copy_from_slice(&st.prev_stick[0].to_be_bytes());
-        ft_state[input_offset+12..][..4].copy_from_slice(&st.prev_stick[1].to_be_bytes());
-        ft_state[input_offset+24..][..4].copy_from_slice(&st.cstick[0].to_be_bytes());
-        ft_state[input_offset+28..][..4].copy_from_slice(&st.cstick[1].to_be_bytes());
-        ft_state[input_offset+48..][..4].copy_from_slice(&st.trigger.to_be_bytes());
-
-        // phys struct
+        // state, direction, anim frame, anim speed, anim blend
         let state_offset = 4;
         ft_state[state_offset..][..4].copy_from_slice(&(st.state.as_u16() as u32).to_be_bytes());
         let direction_bytes = match st.direction {
             slp_parser::Direction::Left => (-1.0f32).to_be_bytes(),
             slp_parser::Direction::Right => 1.0f32.to_be_bytes(),
         };
-        ft_state[state_offset+4..][..4].copy_from_slice(&direction_bytes);
-        ft_state[state_offset+8..][..4].copy_from_slice(&st.state_frame.to_be_bytes());
-        ft_state[state_offset+12..][..4].copy_from_slice(&st.state_speed.to_be_bytes());
-        ft_state[state_offset+16..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // state blend
-        
-        let vel_offset = phys_offset;
-        ft_state[vel_offset+0..][..4].copy_from_slice(&st.anim_velocity[0].to_be_bytes()); // anim_vel.x
-        ft_state[vel_offset+4..][..4].copy_from_slice(&st.anim_velocity[1].to_be_bytes()); // anim_vel.y
-        ft_state[vel_offset+12+0..][..4].copy_from_slice(&st.self_velocity[0].to_be_bytes()); // self_vel.x
-        ft_state[vel_offset+12+4..][..4].copy_from_slice(&st.self_velocity[1].to_be_bytes()); // self_vel.y
-        ft_state[vel_offset+24+0..][..4].copy_from_slice(&st.hit_velocity[0].to_be_bytes()); // kb_vel.x
-        ft_state[vel_offset+24+4..][..4].copy_from_slice(&st.hit_velocity[1].to_be_bytes()); // kb_vel.y
-        ft_state[vel_offset+120+0..][..4].copy_from_slice(&st.ground_velocity[0].to_be_bytes()); // selfVelGround.x
-        ft_state[vel_offset+120+4..][..4].copy_from_slice(&st.ground_velocity[1].to_be_bytes()); // selfVelGround.y
-        
-        let pos_offset = phys_offset + 12*3 + 4*6;
-        let x_pos_bytes = st.position[0].to_be_bytes();
-        let y_pos_bytes = st.position[1].to_be_bytes();
-        ft_state[pos_offset+0..][..4].copy_from_slice(&x_pos_bytes); // pos.x
-        ft_state[pos_offset+4..][..4].copy_from_slice(&y_pos_bytes); // pos.y
-        //ft_state[pos_offset+8..][..4].copy_from_slice(&(10.0f32).to_be_bytes());  // pos_delta.x
-        //ft_state[pos_offset+12..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // pos_delta.y
-        //ft_state[pos_offset+16..][..4].copy_from_slice(&x_pos_bytes); // pos_prev.x
-        //ft_state[pos_offset+20..][..4].copy_from_slice(&y_pos_bytes); // pos_prev.y
+        ft_state[state_offset..][4..8].copy_from_slice(&direction_bytes);
+        ft_state[state_offset..][8..12].copy_from_slice(&st.state_frame.to_be_bytes());
+        ft_state[state_offset..][12..16].copy_from_slice(&st.state_speed.to_be_bytes());
+        ft_state[state_offset..][16..20].copy_from_slice(&st.state_blend.to_be_bytes());
 
-        let airborne_offset = phys_offset + 108; // air_state in struct phys
-        ft_state[airborne_offset..][..4].copy_from_slice(&(st.airborne as u32).to_be_bytes());
+        // idk
+        ft_state[state_offset..][20..24].copy_from_slice(&(st.x_rotn_rot[0]).to_be_bytes());
+        ft_state[state_offset..][24..28].copy_from_slice(&(st.x_rotn_rot[1]).to_be_bytes());
+        ft_state[state_offset..][28..32].copy_from_slice(&(st.x_rotn_rot[2]).to_be_bytes());
+        ft_state[state_offset..][32..36].copy_from_slice(&(st.x_rotn_rot[3]).to_be_bytes());
 
-        let percent_offset = dmg_offset + 4;
+        // phys struct -------------------------
+        
+        // velocities
+        ft_state[phys_offset..][0..4].copy_from_slice(&st.anim_velocity[0].to_be_bytes()); // anim_vel.x
+        ft_state[phys_offset..][4..8].copy_from_slice(&st.anim_velocity[1].to_be_bytes()); // anim_vel.y
+        ft_state[phys_offset..][8..12].copy_from_slice(&st.anim_velocity[2].to_be_bytes()); // anim_vel.z
+        ft_state[phys_offset..][12..16].copy_from_slice(&st.self_velocity[0].to_be_bytes()); // self_vel.x
+        ft_state[phys_offset..][16..20].copy_from_slice(&st.self_velocity[1].to_be_bytes()); // self_vel.y
+        ft_state[phys_offset..][20..24].copy_from_slice(&st.self_velocity[2].to_be_bytes()); // anim_vel.z
+        ft_state[phys_offset..][24..28].copy_from_slice(&st.hit_velocity[0].to_be_bytes()); // kb_vel.x
+        ft_state[phys_offset..][28..32].copy_from_slice(&st.hit_velocity[1].to_be_bytes()); // kb_vel.y
+        ft_state[phys_offset..][32..36].copy_from_slice(&st.hit_velocity[2].to_be_bytes()); // kb_vel.z
+        //let hit_vel_mag = (st.hit_velocity[0].powi(2) + st.hit_velocity[1].powi(2)).sqrt();
+        ft_state[phys_offset..][120..124].copy_from_slice(&st.ground_velocity[0].to_be_bytes()); // selfVelGround.x
+        ft_state[phys_offset..][124..128].copy_from_slice(&st.ground_velocity[1].to_be_bytes()); // selfVelGround.y
+        ft_state[phys_offset..][128..132].copy_from_slice(&st.ground_velocity[2].to_be_bytes()); // selfVelGround.z
+
+        // position
+        ft_state[phys_offset..][60..64].copy_from_slice(&st.position[0].to_be_bytes()); // pos.x
+        ft_state[phys_offset..][64..68].copy_from_slice(&st.position[1].to_be_bytes()); // pos.y
+        ft_state[phys_offset..][68..72].copy_from_slice(&st.position[2].to_be_bytes()); // pos.z
+        //ft_state[phys_offset+8..][..4].copy_from_slice(&(0.0f32).to_be_bytes());  // pos_delta.x
+        //ft_state[phys_offset+12..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // pos_delta.y
+        ft_state[phys_offset+16..][16..20].copy_from_slice(&st.prev_position[0].to_be_bytes()); // pos_prev.x
+        ft_state[phys_offset+20..][20..24].copy_from_slice(&st.prev_position[1].to_be_bytes()); // pos_prev.y
+        ft_state[phys_offset+16..][24..28].copy_from_slice(&st.prev_position[2].to_be_bytes()); // pos_prev.z
+
+        ft_state[phys_offset..][108..112].copy_from_slice(&(st.airborne as u32).to_be_bytes());
+        
+        // input struct -----------------
+
+        ft_state[input_offset..][0..4].copy_from_slice(&st.stick[0].to_be_bytes());
+        ft_state[input_offset..][4..8].copy_from_slice(&st.stick[1].to_be_bytes());
+        ft_state[input_offset..][8..12].copy_from_slice(&st.prev_stick[0].to_be_bytes());
+        ft_state[input_offset..][12..16].copy_from_slice(&st.prev_stick[1].to_be_bytes());
+        ft_state[input_offset..][24..28].copy_from_slice(&st.cstick[0].to_be_bytes());
+        ft_state[input_offset..][28..32].copy_from_slice(&st.cstick[1].to_be_bytes());
+        ft_state[input_offset..][48..52].copy_from_slice(&st.trigger.to_be_bytes());
+
         let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
-        ft_state[percent_offset..][..4].copy_from_slice(&percent_bytes);
-        ft_state[percent_offset+8..][..4].copy_from_slice(&percent_bytes); // temp percent???
+        ft_state[dmg_offset..][4..8].copy_from_slice(&percent_bytes); // percent
+        ft_state[dmg_offset..][12..16].copy_from_slice(&percent_bytes); // temp percent???
         
-        // collision data
+        // collision data (CollData) ------------------
+
+        // I believe these set the centre of the ECB.
+        // topN_Curr
         ft_state[collision_offset..][4..8].copy_from_slice(&st.position[0].to_be_bytes());
         ft_state[collision_offset..][8..12].copy_from_slice(&st.position[1].to_be_bytes());
-        ft_state[collision_offset..][12..16].copy_from_slice(&(0f32).to_be_bytes());
+        ft_state[collision_offset..][12..16].copy_from_slice(&st.position[2].to_be_bytes());
+        // topN_CurrCorrect
         ft_state[collision_offset..][16..20].copy_from_slice(&st.position[0].to_be_bytes());
         ft_state[collision_offset..][20..24].copy_from_slice(&st.position[1].to_be_bytes());
-        ft_state[collision_offset..][24..28].copy_from_slice(&(0f32).to_be_bytes());
+        ft_state[collision_offset..][24..28].copy_from_slice(&st.position[2].to_be_bytes());
+        // topN_Prev
         ft_state[collision_offset..][28..32].copy_from_slice(&st.prev_position[0].to_be_bytes());
         ft_state[collision_offset..][32..36].copy_from_slice(&st.prev_position[1].to_be_bytes());
-        ft_state[collision_offset..][36..40].copy_from_slice(&(0f32).to_be_bytes());
+        ft_state[collision_offset..][36..40].copy_from_slice(&st.prev_position[2].to_be_bytes());
+        // topN_Proj
         ft_state[collision_offset..][40..44].copy_from_slice(&st.position[0].to_be_bytes());
         ft_state[collision_offset..][44..48].copy_from_slice(&st.position[1].to_be_bytes());
-        ft_state[collision_offset..][48..52].copy_from_slice(&(0f32).to_be_bytes());
+        ft_state[collision_offset..][48..52].copy_from_slice(&st.position[2].to_be_bytes());
 
         ft_state[collision_offset..][332..336].copy_from_slice(&st.last_ground_idx.to_be_bytes());
+
+        // camera data (CameraBox) -------------------------------------
         
-        // camera box
-        ft_state[camera_box_offset..][4..8].copy_from_slice(&[0u8; 4]); // next box ptr
         ft_state[camera_box_offset..][0..4].copy_from_slice(&[0u8; 4]); // alloc
-        //// cam pos
+        ft_state[camera_box_offset..][4..8].copy_from_slice(&[0u8; 4]); // next box ptr
+        // cam pos
         ft_state[camera_box_offset..][16..20].copy_from_slice(&st.position[0].to_be_bytes());
         ft_state[camera_box_offset..][20..24].copy_from_slice(&st.position[1].to_be_bytes());
-        ft_state[camera_box_offset..][24..28].copy_from_slice(&(0.0f32).to_be_bytes());
-        // bone pos (necessary - causes character culling otherwise, but idk purpose)
+        ft_state[camera_box_offset..][24..28].copy_from_slice(&st.position[2].to_be_bytes());
+        // bone pos (necessary - causes character culling otherwise)
         ft_state[camera_box_offset..][28..32].copy_from_slice(&st.position[0].to_be_bytes());
         ft_state[camera_box_offset..][32..36].copy_from_slice(&st.position[1].to_be_bytes());
+        ft_state[camera_box_offset..][36..40].copy_from_slice(&st.position[2].to_be_bytes());
 
-        // action state functions
-        let fns_offset = (st.state.as_u16() as usize) * 0x20;
-        let fns = &ACTION_FN_LOOKUP_TABLE[fns_offset+0xC..fns_offset+0x20]; // 5 fn pointers
+        // hitlag & hitstun handling -----------------------------
+
+        if st.hitlag_frames_left > 0.0 {
+            ft_state[dmg_offset..][304..308].copy_from_slice(&st.hitlag_frames_left.to_be_bytes());
+            ft_state[flags_offset..][9] = 4;  // hitstop flag
+        }
+
+        ft_state[flags_offset..][8] = st.state_flags[0];
+        ft_state[flags_offset..][10] = st.state_flags[1];
+        ft_state[flags_offset..][11] = st.state_flags[2];
+        ft_state[flags_offset..][12] = st.state_flags[3];
+        ft_state[flags_offset..][15] = st.state_flags[4];
+
+        ft_state[char_state_offset..][0..4].copy_from_slice(&st.char_state_var_1.to_be_bytes());  // hitstun
+
+        // callbacks (struct cb) ------------------------------
+
+        let fns_idx = (st.state.as_u16() as usize) * 0x20;
+        let fns = &ACTION_FN_LOOKUP_TABLE[fns_idx+0xC..fns_idx+0x20]; // 5 fn pointers
         ft_state[0x10CC..][0..4].copy_from_slice(&fns[4..8]); // IASA
         ft_state[0x10CC..][4..8].copy_from_slice(&fns[0..4]); // Anim
         ft_state[0x10CC..][8..20].copy_from_slice(&fns[8..20]); // Phys, Coll, Cam
 
-        // stale moves
+        // stale moves ------------------------------------
 
         let stale_moves_trunc = &st.stale_moves[0..st.stale_moves.len().min(10)];
-
-        let stale_offset = 8972;
         let next_stale_move_idx = (stale_moves_trunc.len() as u32) % 10;
         ft_state[stale_offset..][..4].copy_from_slice(&next_stale_move_idx.to_be_bytes());
 
@@ -853,7 +976,9 @@ pub fn construct_tm_replay(
             ft_state[offset..][..4].copy_from_slice(&[0, 0, 0, 0]);
         }
 
-        // playerblock data
+        // Playerblock ---------------------------------
+
+        // fix stock icons
         let character = st.character.character().to_u8_external().unwrap();
         let costume = st.character.costume_idx();
         ft_state[playerblock_offset..][4..8].copy_from_slice(&(character as u32).to_be_bytes());
@@ -863,31 +988,21 @@ pub fn construct_tm_replay(
     let st_offset = 312; // savestate offset - skip MatchInit in RecordingSave
     let ft_state_offset = 8+EVENT_DATASIZE; // FtState array offset - fields in Savestate;
     let ft_state_size = 9016;
-    write_ft_state_data(&mut recording_save[st_offset+ft_state_offset..][..ft_state_size], &state.hmn_state);
-    write_ft_state_data(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size], &state.cpu_state);
+    write_ft_state(&mut recording_save[st_offset+ft_state_offset..][..ft_state_size], &state.hmn_state);
+    write_ft_state(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size], &state.cpu_state);
 
     // write inputs
 
-    recording_save[rec_start+0..rec_start+4].copy_from_slice(&0u32.to_be_bytes()); // start_frame
-    recording_save[rec_start+4..rec_start+8].copy_from_slice(&60u32.to_be_bytes()); // num_frames
-    for i in 0..60 {
-        let o = rec_start+8+6*i;
-        recording_save[o..o+6].copy_from_slice(&[
-            0u8, // buttons
-            127i8 as u8,
-            0,
-            0,
-            0,
-            0,
-        ]); // inputs
-    }
+    fn write_inputs(slot: &mut [u8], start_frame: i32, inputs: Option<&[RecInputs]>) -> Result<(), ReplayCreationError> {
+        if let Some(i) = inputs { 
+            if i.len() > 3600 { return Err(ReplayCreationError::DurationTooLong) } 
+        }
 
-    fn write_inputs(slot: &mut [u8], start_frame: i32, inputs: Option<&[RecInputs]>) {
         // if None or len == 0
         if !inputs.is_some_and(|i| !i.is_empty()) {
             slot[0..4].copy_from_slice(&(-1i32).to_be_bytes()); // start_frame
             slot[4..8].copy_from_slice(&0u32.to_be_bytes());    // num_frames
-            return;
+            return Ok(());
         }
 
         let inputs = inputs.unwrap();
@@ -908,20 +1023,22 @@ pub fn construct_tm_replay(
                 input.trigger,
             ]);
         }
+
+        Ok(())
     }
 
     // hmn inputs
     for i in 0..REC_SLOTS {
         let input_data_start = rec_start + i*REC_SLOT_SIZE;
         let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
-        write_inputs(slot, state.start_frame, inputs.hmn_slots[i]);
+        write_inputs(slot, state.start_frame, inputs.hmn_slots[i])?;
     }
 
     // cpu inputs
     for i in 0..REC_SLOTS {
         let input_data_start = rec_start + (i+6)*REC_SLOT_SIZE;
         let slot = &mut recording_save[input_data_start..][..REC_SLOT_SIZE];
-        write_inputs(slot, state.start_frame, inputs.cpu_slots[i]);
+        write_inputs(slot, state.start_frame, inputs.cpu_slots[i])?;
     }
 
     // compress
@@ -951,29 +1068,33 @@ pub fn construct_tm_replay(
 /// # Unimplemented
 /// - stale moves
 /// - items
-/// - animation speed
 /// - animation blending
 ///
-/// # Panics
-/// - If frame + duration is out of bounds.
+/// # Errors
+/// - If frame + duration is out of bounds
 /// - If duration is greater than 3600 frames
 /// - If name is longer than 31 bytes
 /// - If name is not ASCII
+/// - If either character is in a special action state (will be supported in the future)
+/// - If either character is Zelda or Sheik (Very buggy at the moment - may be supported in the future)
 pub fn construct_tm_replay_from_slp(
     game: &slp_parser::Game, 
     frame: usize,
     duration: usize,
     name: &str,
-) -> Vec<u8> {
-    assert!(frame + duration < game.low_port_frames.len());
-    assert!(name.len() < 32);
-    assert!(name.is_ascii());
-    assert!(duration <= 3600);
+
+    // TODO: write XRotN_rot
+    // non_slp_info: Option<NonSlpCharacterInfo>,
+) -> Result<Vec<u8>, ReplayCreationError> {
+    if frame + duration >= game.low_port_frames.len() { return Err(ReplayCreationError::RecordingOutOfBounds) }
+    if name.len() >= 32 { return Err(ReplayCreationError::FilenameTooLong) }
+    if !name.is_ascii() { return Err(ReplayCreationError::FilenameNotASCII) }
+    if duration > 3600 { return Err(ReplayCreationError::DurationTooLong) }
 
     let info = &game.info;
     let time = info.start_time.fields();
 
-    let mut filename = [0u8; 32];
+    let mut filename = [0u8; 31];
     filename[..name.len()].copy_from_slice(name.as_bytes());
 
     fn inputs_over_frames(frames: &[slp_parser::Frame]) -> Vec<RecInputs> {
@@ -1008,16 +1129,15 @@ pub fn construct_tm_replay_from_slp(
         frame: &slp_parser::Frame,
         next_frame: Option<&slp_parser::Frame>,
     ) -> CharacterState<'static> {
-    
         let prev_position;
         let prev_stick;
         match prev_frame {
             Some(p) => {
-                prev_position = [p.position.x, p.position.y];
+                prev_position = [p.position.x, p.position.y, 0.0];
                 prev_stick = p.left_stick_coords;
             }
             None => {
-                prev_position = [frame.position.x, frame.position.y];
+                prev_position = [frame.position.x, frame.position.y, 0.0];
                 prev_stick = [0.0, 0.0];
             }
         }
@@ -1043,19 +1163,24 @@ pub fn construct_tm_replay_from_slp(
                frame.character, 
                starting_char.costume_idx()
             ).unwrap(),
-            position: [frame.position.x, frame.position.y],
+            position: [frame.position.x, frame.position.y, 0.0],
             airborne: frame.is_airborne,
             last_ground_idx: frame.last_ground_idx as u32,
             state: frame.state,
             state_frame: frame.anim_frame,
             state_speed,
+            state_blend: 0.0, // infeasable for now
+            x_rotn_rot: [0.0; 4], // idk
             direction: frame.direction,
             percent: frame.percent,
             stale_moves: &[],
-            anim_velocity: [0.0; 2], // IDK
-            self_velocity: [frame.velocity.x, frame.velocity.y],
-            hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y],
-            ground_velocity: [frame.ground_x_velocity, 0.0],
+            anim_velocity: [0.0; 3], // IDK
+            self_velocity: [frame.velocity.x, frame.velocity.y, 0.0],
+            hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y, 0.0],
+            ground_velocity: [frame.ground_x_velocity, 0.0, 0.0],
+            char_state_var_1: frame.hitstun_misc,
+            hitlag_frames_left: frame.hitlag_frames,
+            state_flags: frame.state_flags,
 
             prev_position,
             prev_stick,
@@ -1088,13 +1213,13 @@ pub fn construct_tm_replay_from_slp(
             start_frame: (frame as i32) - 123, // start at - 123
             hmn_state: state(
                 info.low_starting_character, 
-                game.low_port_frames.get(frame-1), 
+                if frame > 0 { game.low_port_frames.get(frame-1) } else { None },
                 &game.low_port_frames[frame],
                 game.low_port_frames.get(frame+1), 
             ),
             cpu_state: state(
                 info.high_starting_character, 
-                game.high_port_frames.get(frame-1), 
+                if frame > 0 { game.high_port_frames.get(frame-1) } else { None },
                 &game.high_port_frames[frame],
                 game.high_port_frames.get(frame+1), 
             ),

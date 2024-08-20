@@ -1,3 +1,4 @@
+// pub mod gen;
 mod compress;
 
 // Things that could stale but don't
@@ -330,8 +331,19 @@ impl Default for CharacterState<'static> {
     }
 }
 
+pub mod buttons {
+    pub const Z: u8 = 0x01;
+    pub const R: u8 = 0x02;
+    pub const L: u8 = 0x04;
+    pub const X: u8 = 0x08;
+    pub const Y: u8 = 0x10;
+    pub const B: u8 = 0x20;
+    pub const A: u8 = 0x40;
+    pub const DPAD_UP: u8 = 0x80;
+}
+
 #[derive(Copy, Clone, Debug)]
-pub struct RecInputs {
+pub struct Input {
     /// - z: 0x01
     /// - r digital: 0x02
     /// - l digital: 0x04
@@ -342,26 +354,43 @@ pub struct RecInputs {
     /// - dpad up: 0x80
     pub button_flags: u8,
 
+    /// ensure value is within [-80, 80]
     pub stick_x: i8,
+    /// ensure value is within [-80, 80]
     pub stick_y: i8,
+    /// ensure value is within [-80, 80]
     pub cstick_x: i8,
+    /// ensure value is within [-80, 80]
     pub cstick_y: i8,
+
+    /// ensure value is within [0, 140]
     pub trigger: u8,
 }
 
-impl RecInputs {
-    pub const NO_INPUT: RecInputs = RecInputs {
+impl Input {
+    pub const NONE: Input = Input {
         button_flags: 0, stick_x: 0, stick_y: 0, cstick_x: 0, cstick_y: 0, trigger: 0,
     };
+
+    pub fn add(mut self, buttons: u8) -> Self {
+        self.button_flags |= buttons;
+        self
+    }
+
+    pub fn stick(mut self, stick_x: i8, stick_y: i8) -> Self {
+        self.stick_x = stick_x;
+        self.stick_y = stick_y;
+        self
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct InputRecordings<'a> {
     /// Each slot is truncated to 3600 frames.
-    pub hmn_slots: [Option<&'a [RecInputs]>; 6],
+    pub hmn_slots: [Option<&'a [Input]>; 6],
 
     /// Each slot is truncated to 3600 frames.
-    pub cpu_slots: [Option<&'a [RecInputs]>; 6],
+    pub cpu_slots: [Option<&'a [Input]>; 6],
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -660,9 +689,9 @@ pub fn read_replay_buffer(gci_file: &mut [u8]) -> Vec<u8> {
     decoded
 }
 
-// Overwrites the RecordingSave in a replay buffer. You probably don't want this.
-//
-// Will resize recording_save.
+/// Overwrites the RecordingSave in a replay buffer. You probably don't want this.
+///
+/// Will resize recording_save.
 pub fn overwrite_recsave(replay_buffer: &mut Vec<u8>, recording_save: &mut Vec<u8>) {
     let recording_offset = u32::from_be_bytes(replay_buffer[60..64].try_into().unwrap()) as usize;
     let menu_offset = u32::from_be_bytes(replay_buffer[64..68].try_into().unwrap()) as usize;
@@ -761,13 +790,6 @@ pub fn construct_tm_replay_from_replay_buffer(
     }
 
     Ok(bytes)
-}
-
-fn is_hitstun(s: slp_parser::ActionState) -> bool {
-    match s {
-        slp_parser::ActionState::Standard(s) if (78..95).contains(&s.as_u16()) => true,
-        _ => false,
-    }
 }
 
 /// Construct TM replay from initial state and inputs.
@@ -993,7 +1015,7 @@ pub fn construct_tm_replay(
 
     // write inputs
 
-    fn write_inputs(slot: &mut [u8], start_frame: i32, inputs: Option<&[RecInputs]>) -> Result<(), ReplayCreationError> {
+    fn write_inputs(slot: &mut [u8], start_frame: i32, inputs: Option<&[Input]>) -> Result<(), ReplayCreationError> {
         if let Some(i) = inputs { 
             if i.len() > 3600 { return Err(ReplayCreationError::DurationTooLong) } 
         }
@@ -1097,13 +1119,13 @@ pub fn construct_tm_replay_from_slp(
     let mut filename = [0u8; 31];
     filename[..name.len()].copy_from_slice(name.as_bytes());
 
-    fn inputs_over_frames(frames: &[slp_parser::Frame]) -> Vec<RecInputs> {
+    fn inputs_over_frames(frames: &[slp_parser::Frame]) -> Vec<Input> {
         use slp_parser::buttons_mask;
 
         frames
             .iter()
             .map(|f| {
-                RecInputs {
+                Input {
                     button_flags: (
                           ((f.buttons_mask & buttons_mask::Z) >> 4)
                             | ((f.buttons_mask & buttons_mask::R_DIGITAL) >> 4)

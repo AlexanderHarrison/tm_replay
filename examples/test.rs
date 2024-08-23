@@ -13,12 +13,12 @@ fn main() {
             start_frame: 0,
             stage: slp_parser::Stage::FinalDestination,
             hmn_state: CharacterState {
-                character: slp_parser::Character::Zelda.neutral(),
+                character: slp_parser::CharacterColour::Peach(slp_parser::character_colours::PeachColour::White),
                 position: [0.0, 0.0, 0.0],
                 ..Default::default()
             },
             cpu_state: CharacterState {
-                character: slp_parser::CharacterColour::Sheik(slp_parser::character_colours::ZeldaColour::Red),
+                character: slp_parser::Character::Zelda.neutral(),
                 position: [10.0, 0.0, 0.0],
                 ..Default::default()
             },

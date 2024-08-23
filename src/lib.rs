@@ -213,7 +213,20 @@ pub struct RecordingState<'a> {
 impl RecordingState<'_> {
     // offsets zeroed but not written
     fn write_header(&self, b: &mut Vec<u8>) {
-        let char_hmn = self.hmn_state.character.character().to_u8_external().unwrap();
+        // We swap zelda and shiek to work around bugs in Unclepunch.
+        // This is somehow the only way to get the correct character on hmn.
+        // Zelda on cpu always turns into sheik for some reason.
+        //
+        // The default savestate match init was generated with two sheiks on FD.
+        // Other character combinations tend to crash with zelda and sheik 
+        // or have the unused transformation tpose in the centre
+        // This combination doesn't seem to have these issues, but it prevents using zelda on cpu.
+        let char_hmn = match self.hmn_state.character.character() {
+            slp_parser::Character::Zelda => slp_parser::Character::Sheik,
+            slp_parser::Character::Sheik => slp_parser::Character::Zelda,
+            c => c,
+        }.to_u8_external().unwrap();
+
         let costume_hmn = self.hmn_state.character.costume_idx();
         let char_cpu = self.cpu_state.character.character().to_u8_external().unwrap();
         let costume_cpu = self.cpu_state.character.costume_idx();
@@ -400,7 +413,7 @@ pub enum ReplayCreationError {
     FilenameTooLong,
     FilenameNotASCII,
     SpecialActionState,
-    ZeldaOrSheik,
+    ZeldaOnCpu,
 }
 
 const EVENT_DATASIZE: usize = 512;
@@ -793,23 +806,13 @@ pub fn construct_tm_replay_from_replay_buffer(
 }
 
 /// Construct TM replay from initial state and inputs.
-///
-/// Returns GCI file bytes.
-///
-/// # Errors
-/// - If the length of any recording slot is greater than 3600 frames
-/// - If either character is in a special action state (will be supported in the future)
-/// - If either character is Zelda or Sheik (Very buggy at the moment - may be supported in the future)
+/// See `construct_tm_replay_from_slp` for more details.
 pub fn construct_tm_replay(
     state: &RecordingState, 
     inputs: &InputRecordings,
 ) -> Result<Vec<u8>, ReplayCreationError> {
-    if state.hmn_state.character.character() == slp_parser::Character::Zelda 
-        || state.hmn_state.character.character() == slp_parser::Character::Sheik 
-        || state.cpu_state.character.character() == slp_parser::Character::Zelda 
-        || state.cpu_state.character.character() == slp_parser::Character::Sheik 
-    { 
-        return Err(ReplayCreationError::ZeldaOrSheik) 
+    if state.cpu_state.character.character() == slp_parser::Character::Zelda { 
+        return Err(ReplayCreationError::ZeldaOnCpu) 
     }
 
     if let slp_parser::ActionState::Special(_) = state.hmn_state.state {
@@ -1098,7 +1101,7 @@ pub fn construct_tm_replay(
 /// - If name is longer than 31 bytes
 /// - If name is not ASCII
 /// - If either character is in a special action state (will be supported in the future)
-/// - If either character is Zelda or Sheik (Very buggy at the moment - may be supported in the future)
+/// - If Zelda is on cpu. This is due to a bug in Unclepunch.
 pub fn construct_tm_replay_from_slp(
     game: &slp_parser::Game, 
     frame: usize,

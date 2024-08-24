@@ -284,9 +284,13 @@ pub struct CharacterState<'a> {
     pub state: slp_parser::ActionState,
     pub state_frame: f32,
     pub state_speed: f32,
+    /// Between 0 and 1, where 0 is no blending.
     pub state_blend: f32,
     /// I could not tell you how to use this.
     /// Controls character rotation. Keep zeroed to be safe.
+    /// Nonzero in very specific circumstances.
+    /// Incomplete list of actions that are nonzero:
+    /// - Peach's nair
     pub x_rotn_rot: [f32; 4],
     pub direction: slp_parser::Direction,
     pub percent: f32,
@@ -298,9 +302,15 @@ pub struct CharacterState<'a> {
     pub hit_velocity: [f32; 3],
     pub ground_velocity: [f32; 3],
 
-    /// Generic character state variable, used for various things.
+    /// Generic character state variables, used for most actions.
+    ///
+    /// ## item 0:
     /// - During hitstun and hitstop: the number of frames of hitstun remaining
-    pub char_state_var_1: f32,
+    /// - During turn: set to 1 when actionable (???)
+    ///
+    /// ## item 1:
+    /// - During turn: set to -1.0 if turning left or 1.0 if turning right
+    pub char_state_var: [u8; 72],
 
     /// State flags. 
     /// See https://github.com/project-slippi/slippi-wiki/blob/master/SPEC.md#state-bit-flags-1 for more information.
@@ -329,7 +339,7 @@ impl Default for CharacterState<'static> {
             hit_velocity: [0.0; 3],
             ground_velocity: [0.0; 3],
             hitlag_frames_left: 0.0,
-            char_state_var_1: 0.0,
+            char_state_var: [0u8; 72],
             prev_position: [0.0; 3],
             stick: [0.0; 2],
             cstick: [0.0; 2],
@@ -860,10 +870,6 @@ pub fn construct_tm_replay(
         let playerblock_offset = 4396*2;
         let stale_offset = 8972;
 
-        // TEMP
-        // TODO set to zero for airdodge landing
-        //ft_state[char_state_offset..][0..4].copy_from_slice(&(0u32).to_be_bytes());
-
         // state, direction, anim frame, anim speed, anim blend
         let state_offset = 4;
         ft_state[state_offset..][..4].copy_from_slice(&(st.state.as_u16() as u32).to_be_bytes());
@@ -894,7 +900,6 @@ pub fn construct_tm_replay(
         ft_state[phys_offset..][24..28].copy_from_slice(&st.hit_velocity[0].to_be_bytes()); // kb_vel.x
         ft_state[phys_offset..][28..32].copy_from_slice(&st.hit_velocity[1].to_be_bytes()); // kb_vel.y
         ft_state[phys_offset..][32..36].copy_from_slice(&st.hit_velocity[2].to_be_bytes()); // kb_vel.z
-        //let hit_vel_mag = (st.hit_velocity[0].powi(2) + st.hit_velocity[1].powi(2)).sqrt();
         ft_state[phys_offset..][120..124].copy_from_slice(&st.ground_velocity[0].to_be_bytes()); // selfVelGround.x
         ft_state[phys_offset..][124..128].copy_from_slice(&st.ground_velocity[1].to_be_bytes()); // selfVelGround.y
         ft_state[phys_offset..][128..132].copy_from_slice(&st.ground_velocity[2].to_be_bytes()); // selfVelGround.z
@@ -973,7 +978,7 @@ pub fn construct_tm_replay(
         ft_state[flags_offset..][12] = st.state_flags[3];
         ft_state[flags_offset..][15] = st.state_flags[4];
 
-        ft_state[char_state_offset..][0..4].copy_from_slice(&st.char_state_var_1.to_be_bytes());  // hitstun
+        ft_state[char_state_offset..][0..72].copy_from_slice(&st.char_state_var);  // hitstun
 
         // callbacks (struct cb) ------------------------------
 
@@ -1107,9 +1112,6 @@ pub fn construct_tm_replay_from_slp(
     frame: usize,
     duration: usize,
     name: &str,
-
-    // TODO: write XRotN_rot
-    // non_slp_info: Option<NonSlpCharacterInfo>,
 ) -> Result<Vec<u8>, ReplayCreationError> {
     if frame + duration >= game.low_port_frames.len() { return Err(ReplayCreationError::RecordingOutOfBounds) }
     if name.len() >= 32 { return Err(ReplayCreationError::FilenameTooLong) }
@@ -1182,6 +1184,22 @@ pub fn construct_tm_replay_from_slp(
             _ => state_speed = 1.0,
         }
 
+        let mut char_state_var = [0u8; 72];
+        char_state_var[0..4].copy_from_slice(&frame.hitstun_misc.to_be_bytes());
+
+        // only first char state var is recorded. The rest we have to calculate, if they matter.
+        match frame.state {
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::Turn) => {
+                let dir = match frame.direction {
+                    slp_parser::Direction::Left => 1.0f32,
+                    slp_parser::Direction::Right => -1.0f32,
+                };
+                char_state_var[4..8].copy_from_slice(&dir.to_be_bytes());
+                char_state_var[8..12].copy_from_slice(&(-dir).to_be_bytes());
+            }
+            _ => (),
+        }
+
         CharacterState {
             // respect zelda/sheik transformation
             character: slp_parser::CharacterColour::from_character_and_colour(
@@ -1203,7 +1221,7 @@ pub fn construct_tm_replay_from_slp(
             self_velocity: [frame.velocity.x, frame.velocity.y, 0.0],
             hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y, 0.0],
             ground_velocity: [frame.ground_x_velocity, 0.0, 0.0],
-            char_state_var_1: frame.hitstun_misc,
+            char_state_var,
             hitlag_frames_left: frame.hitlag_frames,
             state_flags: frame.state_flags,
 

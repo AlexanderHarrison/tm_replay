@@ -313,6 +313,9 @@ pub struct CharacterState<'a> {
     pub char_state_var: [u8; 72],
 
     /// State flags. 
+    pub subaction_flags: [u8; 16],
+
+    /// State flags. 
     /// See https://github.com/project-slippi/slippi-wiki/blob/master/SPEC.md#state-bit-flags-1 for more information.
     pub state_flags: [u8; 5],
 
@@ -340,6 +343,7 @@ impl Default for CharacterState<'static> {
             ground_velocity: [0.0; 3],
             hitlag_frames_left: 0.0,
             char_state_var: [0u8; 72],
+            subaction_flags: [0u8; 16],
             prev_position: [0.0; 3],
             stick: [0.0; 2],
             cstick: [0.0; 2],
@@ -866,6 +870,7 @@ pub fn construct_tm_replay(
         let camera_box_offset = 1092; // CameraBox
         let flags_offset = 3356;
         let char_state_offset = 3592;
+        let subaction_flags_offset = 3664;
         let dmg_offset = 3680;
         let playerblock_offset = 4396*2;
         let stale_offset = 8972;
@@ -978,7 +983,8 @@ pub fn construct_tm_replay(
         ft_state[flags_offset..][12] = st.state_flags[3];
         ft_state[flags_offset..][15] = st.state_flags[4];
 
-        ft_state[char_state_offset..][0..72].copy_from_slice(&st.char_state_var);  // hitstun
+        ft_state[char_state_offset..][0..72].copy_from_slice(&st.char_state_var);
+        ft_state[subaction_flags_offset..][0..16].copy_from_slice(&st.subaction_flags);
 
         // callbacks (struct cb) ------------------------------
 
@@ -1222,6 +1228,7 @@ pub fn construct_tm_replay_from_slp(
             hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y, 0.0],
             ground_velocity: [frame.ground_x_velocity, 0.0, 0.0],
             char_state_var,
+            subaction_flags: [0u8; 16],
             hitlag_frames_left: frame.hitlag_frames,
             state_flags: frame.state_flags,
 

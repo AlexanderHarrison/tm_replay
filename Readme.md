@@ -16,7 +16,7 @@ Note that everything is in big endian format.
 
 The outermost layer. 
 Documentation on this format is prevalent,
-such as [https://web.archive.org/web/20040520074333/http://members.iinet.net.au/~theimp/gci/GameCube%20GCI%20&%20GCP%20Memory%20Card%20Save%20File%20Format%20Specifications.pdf][here].
+such as [here](https://web.archive.org/web/20040520074333/http://members.iinet.net.au/~theimp/gci/GameCube%20GCI%20&%20GCP%20Memory%20Card%20Save%20File%20Format%20Specifications.pdf).
 The block format data for unclepunch replays seem to start at offset 0x1EB0 in the file until the end of the file.
 None of the header data seems to be relevant here except for the block count (offset 0x38-0x40). 
 The rest of the header can be copied from an example gci file.

@@ -444,8 +444,14 @@ static DEFAULT_GCI_HEADER: &'static [u8] = include_bytes!("gci_header.raw");
 
 const BLOCK_SIZE: usize = 8192;
 
-// 380*0x20 bytes taken from 0x803C2800
+// These are computed from the Start.dol. See example `extract_fn_table`.
 static ACTION_FN_LOOKUP_TABLE: &'static [u8] = include_bytes!("fn_table.raw");
+static SPECIAL_ACTION_FN_LOOKUP_TABLE: &'static [u8] = include_bytes!("special_fn_table.raw");
+static SPECIAL_ACTION_FN_CHARACTER_OFFSETS: [u16; 27] = [
+    0x0000, 0x0140, 0x05a0, 0x0880, 0x0e20, 0x26c0, 0x29a0, 0x2c40, 0x2f40,
+    0x33c0, 0x3780, 0x3aa0, 0x3dc0, 0x4100, 0x4340, 0x46c0, 0x4ac0, 0x4d40,
+    0x4f80, 0x5380, 0x55c0, 0x5860, 0x59a0, 0x5e00, 0x6140, 0x6640, 0x6920,
+];
 
 fn calculate_checksum(src: &[u8], result: &mut [u8]) {
     let mut checksum: [u8; 16] = [
@@ -829,22 +835,30 @@ pub fn construct_tm_replay(
         return Err(ReplayCreationError::ZeldaOnCpu) 
     }
 
-    if let slp_parser::ActionState::Special(_) = state.hmn_state.state {
-        return Err(ReplayCreationError::SpecialActionState)
-    }
+    //if let slp_parser::ActionState::Special(_) = state.hmn_state.state {
+    //    return Err(ReplayCreationError::SpecialActionState)
+    //}
 
-    if let slp_parser::ActionState::Special(_) = state.cpu_state.state {
-        return Err(ReplayCreationError::SpecialActionState)
-    }
+    //if let slp_parser::ActionState::Special(_) = state.cpu_state.state {
+    //    return Err(ReplayCreationError::SpecialActionState)
+    //}
 
     // buffer created by unclepunch's tm code
     let mut bytes = Vec::with_capacity(8192 * 8);
 
     state.write_header(&mut bytes);
 
+    //let mut image = include_bytes!("/home/alex/Downloads/test_image_rgb565.bin");
+    //let mut image = [0u8; 2*96*72];
+    //for i in 0..image.len() {
+    //    let b1 = 0b11010111;
+    //    image[i] = b1;
+    //}
+
     let screenshot_offset = bytes.len();
     let screenshot_size = 2 * 96 * 72;
     bytes.resize(68 + screenshot_size, 0u8); // black screen for now
+    //tes.extend_from_slice(image);
 
     let recording_offset = bytes.len();
 
@@ -989,10 +1003,19 @@ pub fn construct_tm_replay(
         // callbacks (struct cb) ------------------------------
 
         let fns_idx = (st.state.as_u16() as usize) * 0x20;
-        let fns = &ACTION_FN_LOOKUP_TABLE[fns_idx+0xC..fns_idx+0x20]; // 5 fn pointers
-        ft_state[0x10CC..][0..4].copy_from_slice(&fns[4..8]); // IASA
-        ft_state[0x10CC..][4..8].copy_from_slice(&fns[0..4]); // Anim
-        ft_state[0x10CC..][8..20].copy_from_slice(&fns[8..20]); // Phys, Coll, Cam
+
+        let fns = if fns_idx < ACTION_FN_LOOKUP_TABLE.len() {
+            &ACTION_FN_LOOKUP_TABLE[fns_idx..][..0x20]
+        } else {
+            let c = st.character.character().to_u8_internal() as usize;
+            let offset = SPECIAL_ACTION_FN_CHARACTER_OFFSETS[c] as usize;
+            let special_fns_idx = offset + (fns_idx - ACTION_FN_LOOKUP_TABLE.len());
+            &SPECIAL_ACTION_FN_LOOKUP_TABLE[special_fns_idx..][..0x20]
+        };
+
+        ft_state[0x10CC..][0..4].copy_from_slice(&fns[16..20]); // IASA
+        ft_state[0x10CC..][4..8].copy_from_slice(&fns[12..16]); // Anim
+        ft_state[0x10CC..][8..20].copy_from_slice(&fns[20..32]); // Phys, Coll, Cam
 
         // stale moves ------------------------------------
 
@@ -1203,6 +1226,14 @@ pub fn construct_tm_replay_from_slp(
                 char_state_var[4..8].copy_from_slice(&dir.to_be_bytes());
                 char_state_var[8..12].copy_from_slice(&(-dir).to_be_bytes());
             }
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::CliffWait) => {
+                // prevents immediate fall from ledge
+                char_state_var[4..8].copy_from_slice(&640.0f32.to_be_bytes());
+
+                // prevents other character from grabbing ledge
+                char_state_var[8..12].copy_from_slice(&1u32.to_be_bytes());
+                char_state_var[12..16].copy_from_slice(&40.0f32.to_be_bytes());
+            }
             _ => (),
         }
 
@@ -1218,18 +1249,14 @@ pub fn construct_tm_replay_from_slp(
             state: frame.state,
             state_frame: frame.anim_frame,
             state_speed,
-            state_blend: 0.0, // infeasable for now
-            x_rotn_rot: [0.0; 4], // idk
             direction: frame.direction,
             percent: frame.percent,
-            stale_moves: &[],
-            anim_velocity: [0.0; 3], // IDK
             self_velocity: [frame.velocity.x, frame.velocity.y, 0.0],
             hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y, 0.0],
             ground_velocity: [frame.ground_x_velocity, 0.0, 0.0],
             char_state_var,
-            subaction_flags: [0u8; 16],
             hitlag_frames_left: frame.hitlag_frames,
+            subaction_flags: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             state_flags: frame.state_flags,
 
             prev_position,
@@ -1237,6 +1264,9 @@ pub fn construct_tm_replay_from_slp(
             stick: frame.left_stick_coords,
             cstick: frame.right_stick_coords,
             trigger: frame.analog_trigger_value,
+
+            // subaction_flags, state_blend, x_rotn_rot, stale_moves, anim_velocity
+            ..Default::default()
         }
     }
 

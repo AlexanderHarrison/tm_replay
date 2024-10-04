@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-slp_parser = { path = "../slippi_situation_parser" }
+slp_parser = { git = "https://github.com/AlexanderHarrison/slp_parser.git" }

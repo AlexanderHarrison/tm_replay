@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use std::path::PathBuf;
 
 use tm_replay::{construct_tm_replay_from_slp, ReplayCreationError};
@@ -33,7 +33,15 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let args = match Args::try_parse() {
+        Ok(args) => args,
+        Err(e) => {
+            let mut cmd = Args::command();
+            eprintln!("{}", e);
+            let _ = cmd.print_help();
+            std::process::exit(1);
+        }
+    };
 
     let game = match slp_parser::read_game(&args.slp_file) {
         Ok((game, _)) => game,

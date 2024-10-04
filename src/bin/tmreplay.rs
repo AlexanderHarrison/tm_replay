@@ -1,7 +1,4 @@
 use clap::Parser;
-use slp_parser::Stream;
-use std::fs::File;
-use std::io::Read;
 use std::path::PathBuf;
 
 use tm_replay::{construct_tm_replay_from_slp, ReplayCreationError};
@@ -38,12 +35,7 @@ struct Args {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    let mut slp_file = File::open(&args.slp_file)?;
-    let mut slp_data = Vec::new();
-    slp_file.read_to_end(&mut slp_data)?;
-
-    let file_bytes = slp_data.as_slice();
-    let game = match slp_parser::parse_file(&mut Stream::new(file_bytes)) {
+    let game = match slp_parser::read_game(&args.slp_file) {
         Ok((game, _)) => game,
         Err(e) => return Err(format!("Error: failed to parse slp file: {}", e).into()),
     };

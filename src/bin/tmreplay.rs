@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tm_replay::{construct_tm_replay_from_slp, ReplayCreationError};
 
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(name = "tmreplay", author, version, about, long_about = None)]
 struct Args {
     /// Path to the input Slippi replay file
     #[arg(short, long, value_name = "SLP_FILE")]

@@ -1,3 +1,4 @@
+#[cfg(feature = "cli")]
 use clap::Parser;
 use slp_parser::Stream;
 use std::fs::File;

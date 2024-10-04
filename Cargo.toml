@@ -4,5 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = { version = "4.5.19", features = ["derive"] }
+clap = { version = "4.5.19", features = ["derive"], optional = true }
 slp_parser = { git = "https://github.com/AlexanderHarrison/slp_parser.git" }
+
+[features]
+cli = ["dep:clap"]
+
+[[bin]]
+name = "tmreplay"
+required-features = ["cli"]

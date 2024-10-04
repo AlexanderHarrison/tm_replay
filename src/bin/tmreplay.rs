@@ -1,11 +1,9 @@
-#[cfg(feature = "cli")]
 use clap::Parser;
 use slp_parser::Stream;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
-// Import your library module
 use tm_replay::{construct_tm_replay_from_slp, ReplayCreationError};
 
 #[derive(Parser)]
@@ -37,33 +35,21 @@ struct Args {
     name: String,
 }
 
-fn main() {
-    if let Err(e) = run() {
-        eprintln!("Error: {}", e);
-        // Optionally, you can use more specific exit codes
-        std::process::exit(1);
-    }
-}
-
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    // Read the Slippi replay file
     let mut slp_file = File::open(&args.slp_file)?;
     let mut slp_data = Vec::new();
     slp_file.read_to_end(&mut slp_data)?;
 
-    // Parse the Slippi game
     let file_bytes = slp_data.as_slice();
     let game = match slp_parser::parse_file(&mut Stream::new(file_bytes)) {
         Ok((game, _)) => game,
         Err(e) => return Err(format!("Error: failed to parse slp file: {}", e).into()),
     };
 
-    // Use the construct_tm_replay_from_slp function from your library
     match construct_tm_replay_from_slp(&game, args.start_frame, args.num_frames, &args.name) {
         Ok(savestate) => {
-            // Write the output savestate file
             std::fs::write(&args.output_file, &savestate)?;
             println!("Savestate file created at {}", args.output_file.display());
             Ok(())

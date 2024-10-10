@@ -175,15 +175,13 @@ impl RecordingTime {
 
         days += 1; // one-index the day
 
-        let second = seconds % 60;
-
         RecordingTime {
             year,
             month,
             day: days as u8,
             hour: 0,
             minute: 0,
-            second,
+            second: 0,
         }
     }
 }
@@ -771,11 +769,19 @@ pub fn construct_tm_replay_from_replay_buffer(
     bytes.extend_from_slice(DEFAULT_GCI_HEADER);
 
     let ident = "GTME01";
+
+    use std::time::SystemTime;
+    let rand = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as usize & 0xFFFFFFFF;
+
     bytes[0..6].copy_from_slice(ident.as_bytes());
     let gci_inner_name = format!(
-        "TMREC_{:02}{:02}{:04}_{:02}{:02}{:02}", 
+        "TMREC_{:02}{:02}{:04}_{:02}{:02}{:02}_{:08x}",
         date.month, date.day, date.year,
         date.hour, date.minute, date.second,
+        rand,
     );
     bytes[8..0x28].fill(0);
     bytes[8..8+gci_inner_name.len()].copy_from_slice(gci_inner_name.as_bytes());

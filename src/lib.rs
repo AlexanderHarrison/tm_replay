@@ -1128,6 +1128,12 @@ pub fn construct_tm_replay(
     construct_tm_replay_from_replay_buffer(state.time, &state.filename, &bytes)
 }
 
+#[derive(Copy, Clone, PartialEq)]
+pub enum HumanPort {
+    HumanLowPort,
+    HumanHighPort,
+}
+
 /// Construct TM replay from slp file.
 ///
 /// Returns GCI file bytes.
@@ -1146,6 +1152,7 @@ pub fn construct_tm_replay(
 /// - If Zelda is on cpu. This is due to a bug in Unclepunch.
 pub fn construct_tm_replay_from_slp(
     game: &slp_parser::Game, 
+    human: HumanPort,
     frame: usize,
     duration: usize,
     name: &str,
@@ -1278,6 +1285,17 @@ pub fn construct_tm_replay_from_slp(
         }
     }
 
+    let (hmn_char, hmn_frames, cpu_char, cpu_frames) = match human {
+        HumanPort::HumanLowPort => (
+            game.low_starting_character, &game.low_starting_frames,
+            game.high_starting_character, &game.high_starting_frames,
+        ),
+        HumanPort::HumanHighPort => (
+            game.high_starting_character, &game.high_starting_frames,
+            game.low_starting_character, &game.low_starting_frames,
+        ),
+    };
+
     construct_tm_replay(
         &RecordingState {
             stage: info.stage,
@@ -1291,7 +1309,7 @@ pub fn construct_tm_replay_from_slp(
             },
             filename,
             menu_settings: RecordingMenuSettings {
-                hmn_mode: HmnRecordingMode::Playback,
+                hmn_mode: HmnRecordingMode::Off,
                 hmn_slot: RecordingSlot::Slot1,
                 cpu_mode: CpuRecordingMode::Playback,
                 cpu_slot: RecordingSlot::Slot1,
@@ -1300,25 +1318,25 @@ pub fn construct_tm_replay_from_slp(
 
             start_frame: (frame as i32) - 123, // start at - 123
             hmn_state: state(
-                info.low_starting_character, 
-                if frame > 0 { game.low_port_frames.get(frame-1) } else { None },
-                &game.low_port_frames[frame],
-                game.low_port_frames.get(frame+1), 
+                hmn_char,
+                if frame > 0 { hmn_frames.get(frame-1) } else { None },
+                &hmn_frames[frame],
+                hmn_frames.get(frame+1), 
             ),
             cpu_state: state(
-                info.high_starting_character, 
-                if frame > 0 { game.high_port_frames.get(frame-1) } else { None },
-                &game.high_port_frames[frame],
-                game.high_port_frames.get(frame+1), 
+                cpu_char,
+                if frame > 0 { cpu_frames.get(frame-1) } else { None },
+                &cpu_frames[frame],
+                cpu_frames.get(frame+1), 
             ),
         },
         &InputRecordings {
             hmn_slots: [
-                Some(&inputs_over_frames(&game.low_port_frames[frame+1..frame+duration+1])),
+                Some(&inputs_over_frames(&hmn_frames[frame+1..frame+duration+1])),
                 None, None, None, None, None
             ],
             cpu_slots: [
-                Some(&inputs_over_frames(&game.high_port_frames[frame+1..frame+duration+1])),
+                Some(&inputs_over_frames(&cpu_frames[frame+1..frame+duration+1])),
                 None, None, None, None, None
             ],
         }

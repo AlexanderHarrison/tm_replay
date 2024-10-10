@@ -175,13 +175,15 @@ impl RecordingTime {
 
         days += 1; // one-index the day
 
+        let second = seconds % 60;
+
         RecordingTime {
             year,
             month,
             day: days as u8,
             hour: 0,
             minute: 0,
-            second: 0,
+            second,
         }
     }
 }

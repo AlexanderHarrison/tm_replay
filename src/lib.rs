@@ -1287,12 +1287,12 @@ pub fn construct_tm_replay_from_slp(
 
     let (hmn_char, hmn_frames, cpu_char, cpu_frames) = match human {
         HumanPort::HumanLowPort => (
-            game.low_starting_character, &game.low_starting_frames,
-            game.high_starting_character, &game.high_starting_frames,
+            game.info.low_starting_character, &game.low_port_frames,
+            game.info.high_starting_character, &game.high_port_frames,
         ),
         HumanPort::HumanHighPort => (
-            game.high_starting_character, &game.high_starting_frames,
-            game.low_starting_character, &game.low_starting_frames,
+            game.info.high_starting_character, &game.high_port_frames,
+            game.info.low_starting_character, &game.low_port_frames,
         ),
     };
 

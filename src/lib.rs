@@ -302,6 +302,9 @@ pub struct CharacterState<'a> {
     pub hit_velocity: [f32; 3],
     pub ground_velocity: [f32; 3],
 
+    /// number of frames in knockback if in knockback, otherwise -1
+    pub frames_since_hit: i32,
+
     /// Generic character state variables, used for most actions.
     ///
     /// ## item 0:
@@ -341,6 +344,7 @@ impl Default for CharacterState<'static> {
             self_velocity: [0.0; 3],
             hit_velocity: [0.0; 3],
             ground_velocity: [0.0; 3],
+            frames_since_hit: -1,
             hitlag_frames_left: 0.0,
             char_state_var: [0u8; 72],
             subaction_flags: [0u8; 16],
@@ -427,6 +431,7 @@ pub enum ReplayCreationError {
     FilenameTooLong,
     FilenameNotASCII,
     SpecialActionState,
+    NoGoodExportFrame,
     ZeldaOnCpu,
 }
 
@@ -956,6 +961,7 @@ pub fn construct_tm_replay(
         let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
         ft_state[dmg_offset..][4..8].copy_from_slice(&percent_bytes); // percent
         ft_state[dmg_offset..][12..16].copy_from_slice(&percent_bytes); // temp percent???
+        ft_state[dmg_offset..][0x80..0x84].copy_from_slice(&st.frames_since_hit.to_be_bytes()); // frames in knockback
         
         // collision data (CollData) ------------------
 
@@ -1020,6 +1026,8 @@ pub fn construct_tm_replay(
             let special_fns_idx = offset + (fns_idx - ACTION_FN_LOOKUP_TABLE.len());
             &SPECIAL_ACTION_FN_LOOKUP_TABLE[special_fns_idx..][..0x20]
         };
+
+        //ft_state[0x10C0..][0..4].copy_from_slice(&[0x80, 0x0D, 0x9C, 0xE8]); // OnGrabFighter_Self
 
         ft_state[0x10CC..][0..4].copy_from_slice(&fns[16..20]); // IASA
         ft_state[0x10CC..][4..8].copy_from_slice(&fns[12..16]); // Anim
@@ -1157,6 +1165,31 @@ pub fn construct_tm_replay_from_slp(
     duration: usize,
     name: &str,
 ) -> Result<Vec<u8>, ReplayCreationError> {
+    let mut frame = frame;
+    let mut duration = duration;
+
+    // search backwards for a good frame to export -------------------------
+
+    // max number of frames to search back
+    let mut search_frames_left = 30;
+
+    fn good_frame(f: &slp_parser::Frame) -> bool {
+        //use slp_parser::StandardActionState as As;
+
+        if f.hitlag_frames != 0.0 { return false }
+
+        true
+    }
+
+    while !good_frame(&game.low_port_frames[frame]) || !good_frame(&game.high_port_frames[frame]) {
+        if search_frames_left == 0 || frame == 0 { return Err(ReplayCreationError::NoGoodExportFrame); }
+        frame -= 1;
+        search_frames_left -= 1;
+        duration += 1;
+    }
+
+    // export ---------------------------------------------------------------
+
     if frame + duration >= game.low_port_frames.len() { return Err(ReplayCreationError::RecordingOutOfBounds) }
     if name.len() >= 32 { return Err(ReplayCreationError::FilenameTooLong) }
     if !name.is_ascii() { return Err(ReplayCreationError::FilenameNotASCII) }
@@ -1196,10 +1229,13 @@ pub fn construct_tm_replay_from_slp(
 
     fn state(
         starting_char: slp_parser::CharacterColour, 
-        prev_frame: Option<&slp_parser::Frame>,
-        frame: &slp_parser::Frame,
-        next_frame: Option<&slp_parser::Frame>,
+        frames: &[slp_parser::Frame],
+        frame_idx: usize,
     ) -> CharacterState<'static> {
+        let frame = &frames[frame_idx];
+        let prev_frame = if frame_idx != 0 { Some(&frames[frame_idx - 1]) } else { None };
+        let next_frame = frames.get(frame_idx+1);
+
         let prev_position;
         let prev_stick;
         match prev_frame {
@@ -1252,6 +1288,28 @@ pub fn construct_tm_replay_from_slp(
             _ => (),
         }
 
+        let frames_since_hit = match frame.state {
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::DamageHi1        
+                | slp_parser::StandardActionState::DamageHi2    
+                | slp_parser::StandardActionState::DamageHi3    
+                | slp_parser::StandardActionState::DamageN1     
+                | slp_parser::StandardActionState::DamageN2     
+                | slp_parser::StandardActionState::DamageN3     
+                | slp_parser::StandardActionState::DamageLw1    
+                | slp_parser::StandardActionState::DamageLw2    
+                | slp_parser::StandardActionState::DamageLw3    
+                | slp_parser::StandardActionState::DamageAir1   
+                | slp_parser::StandardActionState::DamageAir2   
+                | slp_parser::StandardActionState::DamageAir3   
+                | slp_parser::StandardActionState::DamageFlyHi  
+                | slp_parser::StandardActionState::DamageFlyN   
+                | slp_parser::StandardActionState::DamageFlyLw  
+                | slp_parser::StandardActionState::DamageFlyTop 
+                | slp_parser::StandardActionState::DamageFlyRoll)
+            => frames[..frame_idx].iter().rev().position(|f| f.hitlag_frames != 0.0).unwrap() as i32,
+            _ => -1 
+        };
+
         CharacterState {
             // respect zelda/sheik transformation
             character: slp_parser::CharacterColour::from_character_and_colour(
@@ -1269,6 +1327,7 @@ pub fn construct_tm_replay_from_slp(
             self_velocity: [frame.velocity.x, frame.velocity.y, 0.0],
             hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y, 0.0],
             ground_velocity: [frame.ground_x_velocity, 0.0, 0.0],
+            frames_since_hit,
             char_state_var,
             hitlag_frames_left: frame.hitlag_frames,
             subaction_flags: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -1317,18 +1376,8 @@ pub fn construct_tm_replay_from_slp(
             },
 
             start_frame: (frame as i32) - 123, // start at - 123
-            hmn_state: state(
-                hmn_char,
-                if frame > 0 { hmn_frames.get(frame-1) } else { None },
-                &hmn_frames[frame],
-                hmn_frames.get(frame+1), 
-            ),
-            cpu_state: state(
-                cpu_char,
-                if frame > 0 { cpu_frames.get(frame-1) } else { None },
-                &cpu_frames[frame],
-                cpu_frames.get(frame+1), 
-            ),
+            hmn_state: state(hmn_char, hmn_frames, frame),
+            cpu_state: state(cpu_char, cpu_frames, frame),
         },
         &InputRecordings {
             hmn_slots: [

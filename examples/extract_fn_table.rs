@@ -31,10 +31,10 @@ static MAPS: [&'static [u32]; 27] = [
 fn main() {
     // read Start.dol from vanilla melee
     let dol = std::fs::read("Start.dol").unwrap();
-    let char_offsets_list_offset = 0x003BE2E0;
 
     std::fs::write("src/fn_table.raw", &dol[0x3BF800..0x3C22A0]).unwrap();
 
+    let char_offsets_list_offset = 0x003BE2E0;
     let offsets = &dol[char_offsets_list_offset..][..27*4];
     let mut out = Vec::new();
     for i in 0..27 {

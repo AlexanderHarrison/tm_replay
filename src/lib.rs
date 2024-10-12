@@ -1188,6 +1188,21 @@ pub fn construct_tm_replay_from_slp(
         duration += 1;
     }
 
+    // We need to search forwards for entry
+    while matches!(
+        game.low_port_frames[frame].state, 
+        slp_parser::ActionState::Standard(slp_parser::StandardActionState::Entry
+            | slp_parser::StandardActionState::EntryStart
+            | slp_parser::StandardActionState::EntryEnd)
+    ) || matches!(
+        game.high_port_frames[frame].state, 
+        slp_parser::ActionState::Standard(slp_parser::StandardActionState::Entry
+            | slp_parser::StandardActionState::EntryStart
+            | slp_parser::StandardActionState::EntryEnd)
+    ) {
+        frame += 1;
+    }
+
     // export ---------------------------------------------------------------
 
     if frame + duration >= game.low_port_frames.len() { return Err(ReplayCreationError::RecordingOutOfBounds) }

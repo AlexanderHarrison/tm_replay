@@ -1005,6 +1005,16 @@ pub fn construct_tm_replay(
             ft_state[flags_offset..][9] = 4;  // hitstop flag
         }
 
+        // flags ----------------------------------------------
+
+        if matches!(
+            st.state,
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::Catch | slp_parser::StandardActionState::CatchDash)
+        ) {
+            // if not set, grabs in progress will always whiff.
+            ft_state[flags_offset..][14] = 0x1A; // 0x19 -> 0x1A
+        }
+
         ft_state[flags_offset..][8] = st.state_flags[0];
         ft_state[flags_offset..][10] = st.state_flags[1];
         ft_state[flags_offset..][11] = st.state_flags[2];
@@ -1026,8 +1036,6 @@ pub fn construct_tm_replay(
             let special_fns_idx = offset + (fns_idx - ACTION_FN_LOOKUP_TABLE.len());
             &SPECIAL_ACTION_FN_LOOKUP_TABLE[special_fns_idx..][..0x20]
         };
-
-        //ft_state[0x10C0..][0..4].copy_from_slice(&[0x80, 0x0D, 0x9C, 0xE8]); // OnGrabFighter_Self
 
         ft_state[0x10CC..][0..4].copy_from_slice(&fns[16..20]); // IASA
         ft_state[0x10CC..][4..8].copy_from_slice(&fns[12..16]); // Anim
@@ -1174,9 +1182,27 @@ pub fn construct_tm_replay_from_slp(
     let mut search_frames_left = 30;
 
     fn good_frame(f: &slp_parser::Frame) -> bool {
-        //use slp_parser::StandardActionState as As;
+        use slp_parser::{ActionState, StandardActionState::*};
 
         if f.hitlag_frames != 0.0 { return false }
+
+        if matches!(f.state, ActionState::Standard(
+            CatchPull | CatchDashPull | CatchWait | CatchAttack | CatchCut
+                | ThrowF | ThrowB | ThrowHi | ThrowLw 
+                | CapturePulledHi | CaptureWaitHi | CaptureDamageHi | CapturePulledLw | CaptureWaitLw
+                | CaptureDamageLw | CaptureCut | CaptureJump | CaptureNeck | CaptureFoot
+                | ThrownF | ThrownB | ThrownHi | ThrownLw | ThrownLwWomen
+                | ShoulderedWait | ShoulderedWalkSlow | ShoulderedWalkMiddle | ShoulderedWalkFast | ShoulderedTurn
+                | ThrownFF | ThrownFB | ThrownFHi | ThrownFLw
+                | CaptureCaptain | CaptureYoshi | YoshiEgg | CaptureKoopa
+                | CaptureDamageKoopa | CaptureWaitKoopa | ThrownKoopaF | ThrownKoopaB
+                | CaptureKoopaAir | CaptureDamageKoopaAir | CaptureWaitKoopaAir | ThrownKoopaAirF | ThrownKoopaAirB
+                | CaptureKirby | CaptureWaitKirby | ThrownKirbyStar | ThrownCopyStar | ThrownKirby
+                | BarrelWait | Bury | BuryWait | BuryJump
+                | DamageSong | DamageSongWait | DamageSongRv | DamageBind
+        )) {
+            return false;
+        }
 
         true
     }
@@ -1383,7 +1409,7 @@ pub fn construct_tm_replay_from_slp(
             },
             filename,
             menu_settings: RecordingMenuSettings {
-                hmn_mode: HmnRecordingMode::Off,
+                hmn_mode: HmnRecordingMode::Playback,
                 hmn_slot: RecordingSlot::Slot1,
                 cpu_mode: CpuRecordingMode::Playback,
                 cpu_slot: RecordingSlot::Slot1,

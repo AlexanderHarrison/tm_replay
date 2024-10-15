@@ -93,7 +93,7 @@ fn run() -> Result<(), String> {
         Err(e) => return Err(format!("Error: failed to parse slp file: {}", e).into()),
     };
 
-    match construct_tm_replay_from_slp(&game, start_frame, num_frames, &name) {
+    match construct_tm_replay_from_slp(&game, HumanPort::HumanLowPort, start_frame, num_frames, &name) {
         Ok(savestate) => {
             std::fs::write(&output_file, &savestate)
                 .map_err(|e| format!("Could not write output file '{}': {}", &output_file, e))?;
@@ -107,6 +107,11 @@ fn run() -> Result<(), String> {
             ReplayCreationError::DurationTooLong => {
                 return Err(
                     "Error: The duration exceeds the maximum allowed length (3600 frames)".into(),
+                );
+            }
+            ReplayCreationError::NoGoodExportFrame => {
+                return Err(
+                    "Error: Could not find a good export frame.".into(),
                 );
             }
             ReplayCreationError::FilenameTooLong => {

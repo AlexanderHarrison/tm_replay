@@ -1021,6 +1021,13 @@ pub fn construct_tm_replay(
         ft_state[flags_offset..][12] = st.state_flags[3];
         ft_state[flags_offset..][15] = st.state_flags[4];
 
+        match st.character.character() {
+            slp_parser::Character::Jigglypuff | slp_parser::Character::Kirby => {
+                ft_state[flags_offset..][18] |= 0x40; // multijump flag
+            }
+            _ => {},
+        }
+
         ft_state[char_state_offset..][0..72].copy_from_slice(&st.char_state_var);
         ft_state[subaction_flags_offset..][0..16].copy_from_slice(&st.subaction_flags);
 

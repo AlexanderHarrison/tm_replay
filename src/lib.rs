@@ -928,7 +928,7 @@ pub fn construct_tm_replay(
         ft_state[phys_offset..][8..12].copy_from_slice(&st.anim_velocity[2].to_be_bytes()); // anim_vel.z
         ft_state[phys_offset..][12..16].copy_from_slice(&st.self_velocity[0].to_be_bytes()); // self_vel.x
         ft_state[phys_offset..][16..20].copy_from_slice(&st.self_velocity[1].to_be_bytes()); // self_vel.y
-        ft_state[phys_offset..][20..24].copy_from_slice(&st.self_velocity[2].to_be_bytes()); // anim_vel.z
+        ft_state[phys_offset..][20..24].copy_from_slice(&st.self_velocity[2].to_be_bytes()); // self_vel.z
         ft_state[phys_offset..][24..28].copy_from_slice(&st.hit_velocity[0].to_be_bytes()); // kb_vel.x
         ft_state[phys_offset..][28..32].copy_from_slice(&st.hit_velocity[1].to_be_bytes()); // kb_vel.y
         ft_state[phys_offset..][32..36].copy_from_slice(&st.hit_velocity[2].to_be_bytes()); // kb_vel.z
@@ -940,11 +940,12 @@ pub fn construct_tm_replay(
         ft_state[phys_offset..][60..64].copy_from_slice(&st.position[0].to_be_bytes()); // pos.x
         ft_state[phys_offset..][64..68].copy_from_slice(&st.position[1].to_be_bytes()); // pos.y
         ft_state[phys_offset..][68..72].copy_from_slice(&st.position[2].to_be_bytes()); // pos.z
-        //ft_state[phys_offset+8..][..4].copy_from_slice(&(0.0f32).to_be_bytes());  // pos_delta.x
-        //ft_state[phys_offset+12..][..4].copy_from_slice(&(0.0f32).to_be_bytes()); // pos_delta.y
-        ft_state[phys_offset+16..][16..20].copy_from_slice(&st.prev_position[0].to_be_bytes()); // pos_prev.x
-        ft_state[phys_offset+20..][20..24].copy_from_slice(&st.prev_position[1].to_be_bytes()); // pos_prev.y
-        ft_state[phys_offset+16..][24..28].copy_from_slice(&st.prev_position[2].to_be_bytes()); // pos_prev.z
+        ft_state[phys_offset..][72..76].copy_from_slice(&st.prev_position[0].to_be_bytes()); // pos_prev.x
+        ft_state[phys_offset..][76..80].copy_from_slice(&st.prev_position[1].to_be_bytes()); // pos_prev.y
+        ft_state[phys_offset..][80..84].copy_from_slice(&st.prev_position[2].to_be_bytes()); // pos_prev.z
+        ft_state[phys_offset..][84..88].copy_from_slice(&(0.0f32).to_be_bytes()); // pos_delta.x
+        ft_state[phys_offset..][88..92].copy_from_slice(&(0.0f32).to_be_bytes()); // pos_delta.y
+        ft_state[phys_offset..][92..96].copy_from_slice(&(0.0f32).to_be_bytes()); // pos_delta.z
 
         ft_state[phys_offset..][108..112].copy_from_slice(&(st.airborne as u32).to_be_bytes());
         

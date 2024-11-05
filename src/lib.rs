@@ -1359,12 +1359,7 @@ pub fn construct_tm_replay_from_slp(
             _ => -1 
         };
 
-        let mut subaction_flags = [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-
-        // allows dash dancing
-        if frame.state == slp_parser::ActionState::Standard(slp_parser::StandardActionState::Dash) {
-            subaction_flags[0..4].copy_from_slice(&[0; 4]);
-        }
+        let subaction_flags = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
         CharacterState {
             // respect zelda/sheik transformation
@@ -1395,7 +1390,7 @@ pub fn construct_tm_replay_from_slp(
             cstick: frame.right_stick_coords,
             trigger: frame.analog_trigger_value,
 
-            // subaction_flags, state_blend, x_rotn_rot, stale_moves, anim_velocity
+            // state_blend, x_rotn_rot, stale_moves, anim_velocity
             ..Default::default()
         }
     }

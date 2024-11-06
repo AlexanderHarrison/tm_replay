@@ -1022,11 +1022,31 @@ pub fn construct_tm_replay(
         ft_state[flags_offset..][12] = st.state_flags[3];
         ft_state[flags_offset..][15] = st.state_flags[4];
 
-        match st.character.character() {
-            slp_parser::Character::Jigglypuff | slp_parser::Character::Kirby => {
-                ft_state[flags_offset..][18] |= 0x40; // multijump flag
-            }
-            _ => {},
+        // multijump flag
+        if matches!(
+            st.character.character(), 
+            slp_parser::Character::Jigglypuff | slp_parser::Character::Kirby
+        ) {
+            ft_state[flags_offset..][18] |= 0x40;
+        } else {
+            ft_state[flags_offset..][18] &= !0x40;
+        }
+
+        // walljump flag
+        if matches!(
+            st.character.character(),
+            slp_parser::Character::Mario 
+            | slp_parser::Character::CaptainFalcon
+            | slp_parser::Character::Falco
+            | slp_parser::Character::Fox
+            | slp_parser::Character::Samus
+            | slp_parser::Character::Sheik
+            | slp_parser::Character::YoungLink
+            | slp_parser::Character::Pichu
+        ) {
+            ft_state[flags_offset..][20] |= 0x01;
+        } else {
+            ft_state[flags_offset..][20] &= !0x01;
         }
 
         ft_state[char_state_offset..][0..72].copy_from_slice(&st.char_state_var);

@@ -1207,8 +1207,6 @@ pub fn construct_tm_replay_from_slp(
     // search backwards for a good frame to export -------------------------
 
     // max number of frames to search back
-    let mut search_frames_left = 30;
-
     fn good_frame(f: &slp_parser::Frame) -> bool {
         use slp_parser::{ActionState, StandardActionState::*};
 
@@ -1236,9 +1234,8 @@ pub fn construct_tm_replay_from_slp(
     }
 
     while !good_frame(&game.low_port_frames[frame]) || !good_frame(&game.high_port_frames[frame]) {
-        if search_frames_left == 0 || frame == 0 { return Err(ReplayCreationError::NoGoodExportFrame); }
+        if frame == 0 { return Err(ReplayCreationError::NoGoodExportFrame); }
         frame -= 1;
-        search_frames_left -= 1;
         duration += 1;
     }
 

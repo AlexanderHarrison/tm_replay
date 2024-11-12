@@ -1314,11 +1314,10 @@ pub fn construct_tm_replay_from_slp(
         let mut i = frame_idx;
         let mut prev_instance_id = u16::MAX;
         loop {
-            let opponent_frame = &opponent_frames[i];
-            let instance_id = opponent_frame.last_hitting_instance_id;
+            let instance_id = opponent_frames[i].last_hit_by_instance_id;
 
             if instance_id != prev_instance_id {
-                let move_id = opponent_frame.last_hitting_attack_id;
+                let move_id = frames[i].last_hitting_attack_id;
                 if move_id == 0 { break; } // end on death
 
                 // id 1 does not stale

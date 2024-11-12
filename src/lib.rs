@@ -1,81 +1,6 @@
 // pub mod gen;
 mod compress;
 
-// Things that could stale but don't
-// - luigi's taunt
-// - zair
-// - dk cargo throw release
-#[derive(Copy, Clone, Debug)]
-pub enum StaleableMoves {
-    Jab1 = 0x02,
-    Jab2 = 0x03,
-    Jab3 = 0x04,
-    JabRapid = 0x05,
-    DashAttack = 0x06,
-    FTilt = 0x07,
-    UTilt = 0x08,
-    DTilt = 0x09,
-    FSmash = 0x0A,
-    USmash = 0x0B,
-    DSmash = 0x0C,
-
-    NAir = 0x0D,
-    FAir = 0x0E,
-    BAir = 0x0F,
-    UAir = 0x10,
-    DAir = 0x11,
-
-    NSpecial = 0x12,
-    SSpecial = 0x13,
-    USpecial = 0x14,
-    DSpecial = 0x15,
-
-    // Kirby copy abilities
-    NSpecialCopyMario          = 0x16,
-    NSpecialCopyFox            = 0x17,
-    NSpecialCopyCaptainFalcon  = 0x18,
-    NSpecialCopyDonkeyKong     = 0x19,
-    NSpecialCopyBowser         = 0x1A,
-    NSpecialCopyLink           = 0x1B,
-    NSpecialCopySheik          = 0x1C,
-    NSpecialCopyNess           = 0x1D,
-    NSpecialCopyPeach          = 0x1E,
-    NSpecialCopyIceClimbers    = 0x1F,
-    NSpecialCopyPikachu        = 0x20,
-    NSpecialCopySamus          = 0x21,
-    NSpecialCopyYoshi          = 0x22,
-    NSpecialCopyJigglypuff     = 0x23,
-    NSpecialCopyMewtwo         = 0x24,
-    NSpecialCopyLuigi          = 0x25,
-    NSpecialCopyMarth          = 0x26,
-    NSpecialCopyZelda          = 0x27,
-    NSpecialCopyYoungLink      = 0x28,
-    NSpecialCopyDrMario        = 0x29,
-    NSpecialCopyFalco          = 0x2A,
-    NSpecialCopyPichu          = 0x2B,
-    NSpecialCopyMrGameAndWatch = 0x2C,
-    NSpecialCopyGanondorf      = 0x2D,
-    NSpecialCopyRoy            = 0x2E,
-
-    GetUpAttackBack = 0x32,
-    GetUpAttackStomach = 0x33,
-
-    Pummel = 0x34,
-    FThrow = 0x35,
-    BThrow = 0x36,
-    UThrow = 0x37,
-    DThrow = 0x38,
-
-    // DK cargo throws
-    FCargoThrow = 0x39,
-    BCargoThrow = 0x3A,
-    UCargoThrow = 0x3B,
-    DCargoThrow = 0x3C,
-
-    LedgeAttackSlow = 0x3D,
-    LedgeAttackFast = 0x3E,
-}
-
 #[derive(Copy, Clone, Debug)]
 pub enum RecordingSlot {
     Random = 0,
@@ -100,6 +25,16 @@ pub struct RecordingMenuSettings {
     pub cpu_slot: RecordingSlot,
     pub loop_inputs: bool,
     pub auto_restore: bool,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct StaleMove {
+    pub move_id: u16,
+    pub instance_id: u16,
+}
+
+impl StaleMove {
+    pub const NULL: StaleMove = StaleMove { move_id: 0, instance_id: 0 };
 }
 
 impl Default for RecordingMenuSettings {
@@ -197,7 +132,7 @@ pub fn dolphin_gci_filename(time: RecordingTime) -> String {
 }
 
 #[derive(Clone, Debug)]
-pub struct RecordingState<'a> {
+pub struct RecordingState {
     pub time: RecordingTime,
     /// Name to show when browsing in Training Mode.
     pub filename: [u8; 31], // ascii
@@ -206,11 +141,11 @@ pub struct RecordingState<'a> {
     /// Melee starts at frame -123. 'GO' disappears on frame 0.
     pub start_frame: i32,
     pub stage: slp_parser::Stage,
-    pub hmn_state: CharacterState<'a>,
-    pub cpu_state: CharacterState<'a>,
+    pub hmn_state: CharacterState,
+    pub cpu_state: CharacterState,
 }
 
-impl RecordingState<'_> {
+impl RecordingState {
     // offsets zeroed but not written
     fn write_header(&self, b: &mut Vec<u8>) {
         // We swap zelda and shiek to work around bugs in Unclepunch.
@@ -276,7 +211,7 @@ impl RecordingState<'_> {
 /// Initial state for a character.
 ///
 /// Note that this struct has a Default implementation.
-pub struct CharacterState<'a> {
+pub struct CharacterState {
     pub character: slp_parser::CharacterColour,
     pub position: [f32; 3],
     pub prev_position: [f32; 3],
@@ -295,8 +230,8 @@ pub struct CharacterState<'a> {
     pub direction: slp_parser::Direction,
     pub percent: f32,
     pub last_ground_idx: u32,
-    /// Truncated to the first ten items.
-    pub stale_moves: &'a [StaleableMoves],
+    /// Zero if n/a. See https://docs.google.com/spreadsheets/d/1spibzWaitiA22s7db1AEw1hqQXzPDNFZHYjc4czv2dc
+    pub stale_moves: [StaleMove; 10],
     pub anim_velocity: [f32; 3],
     pub self_velocity: [f32; 3],
     pub hit_velocity: [f32; 3],
@@ -329,7 +264,7 @@ pub struct CharacterState<'a> {
     pub trigger: f32,
 }
 
-impl Default for CharacterState<'static> {
+impl Default for CharacterState {
     fn default() -> Self {
         CharacterState {
             character: slp_parser::Character::Peach.neutral(),
@@ -339,7 +274,7 @@ impl Default for CharacterState<'static> {
             state: slp_parser::ActionState::Standard(slp_parser::StandardActionState::Wait),
             state_frame: 0.0,
             percent: 0.0,
-            stale_moves: &[],
+            stale_moves: [StaleMove::NULL; 10],
             anim_velocity: [0.0; 3],
             self_velocity: [0.0; 3],
             hit_velocity: [0.0; 3],
@@ -1071,20 +1006,14 @@ pub fn construct_tm_replay(
 
         // stale moves ------------------------------------
 
-        let stale_moves_trunc = &st.stale_moves[0..st.stale_moves.len().min(10)];
-        let next_stale_move_idx = (stale_moves_trunc.len() as u32) % 10;
-        ft_state[stale_offset..][..4].copy_from_slice(&next_stale_move_idx.to_be_bytes());
+        let stale_move_next_idx = st.stale_moves.iter().position(|st| st.move_id == 0).unwrap_or(0) as u32;
+        ft_state[stale_offset..][..4].copy_from_slice(&stale_move_next_idx.to_be_bytes());
 
-        for i in 0..stale_moves_trunc.len() {
+        for i in 0..10 {
             let offset = stale_offset + 4 + 4*i;
-            let move_id = stale_moves_trunc[i] as u16;
-            ft_state[offset..][..2].copy_from_slice(&move_id.to_be_bytes());
-            ft_state[offset+2..][..2].copy_from_slice(&[0, 0]); // # of action states this game (unused probably)
-        }
-       
-        for i in stale_moves_trunc.len()..10 {
-            let offset = stale_offset + 4 + 4*i;
-            ft_state[offset..][..4].copy_from_slice(&[0, 0, 0, 0]);
+            let st = st.stale_moves[i];
+            ft_state[offset..][..2].copy_from_slice(&st.move_id.to_be_bytes());
+            ft_state[offset+2..][..2].copy_from_slice(&st.instance_id.to_be_bytes());
         }
 
         // Playerblock ---------------------------------
@@ -1296,8 +1225,9 @@ pub fn construct_tm_replay_from_slp(
     fn state(
         starting_char: slp_parser::CharacterColour, 
         frames: &[slp_parser::Frame],
+        opponent_frames: &[slp_parser::Frame],
         frame_idx: usize,
-    ) -> CharacterState<'static> {
+    ) -> CharacterState {
         let frame = &frames[frame_idx];
         let prev_frame = if frame_idx != 0 { Some(&frames[frame_idx - 1]) } else { None };
         let next_frame = frames.get(frame_idx+1);
@@ -1378,6 +1308,35 @@ pub fn construct_tm_replay_from_slp(
 
         let subaction_flags = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
+        let mut stale_count = 0;
+        let mut stale_moves = [StaleMove::NULL; 10];
+
+        let mut i = frame_idx;
+        let mut prev_instance_id = u16::MAX;
+        loop {
+            let opponent_frame = &opponent_frames[i];
+            let instance_id = opponent_frame.last_hitting_instance_id;
+
+            if instance_id != prev_instance_id {
+                let move_id = opponent_frame.last_hitting_attack_id;
+                if move_id == 0 { break; } // end on death
+
+                // id 1 does not stale
+                if move_id != 1 { 
+                    stale_moves[stale_count] = StaleMove { move_id, instance_id };
+                    stale_count += 1;
+                    if stale_count == 10 { break; }
+                    prev_instance_id = instance_id;
+                }
+            }
+
+            if i == 0 { break }
+            i -= 1;
+        }
+
+        // reverse order, since we iterated backwards
+        stale_moves[..stale_count].reverse();
+
         CharacterState {
             // respect zelda/sheik transformation
             character: slp_parser::CharacterColour::from_character_and_colour(
@@ -1400,6 +1359,7 @@ pub fn construct_tm_replay_from_slp(
             hitlag_frames_left: frame.hitlag_frames,
             subaction_flags,
             state_flags: frame.state_flags,
+            stale_moves,
 
             prev_position,
             prev_stick,
@@ -1407,7 +1367,7 @@ pub fn construct_tm_replay_from_slp(
             cstick: frame.right_stick_coords,
             trigger: frame.analog_trigger_value,
 
-            // state_blend, x_rotn_rot, stale_moves, anim_velocity
+            // state_blend, x_rotn_rot, anim_velocity
             ..Default::default()
         }
     }
@@ -1444,8 +1404,8 @@ pub fn construct_tm_replay_from_slp(
             },
 
             start_frame: (frame as i32) - 123, // start at - 123
-            hmn_state: state(hmn_char, hmn_frames, frame),
-            cpu_state: state(cpu_char, cpu_frames, frame),
+            hmn_state: state(hmn_char, hmn_frames, cpu_frames, frame),
+            cpu_state: state(cpu_char, cpu_frames, hmn_frames, frame),
         },
         &InputRecordings {
             hmn_slots: [

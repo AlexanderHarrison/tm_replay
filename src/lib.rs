@@ -121,6 +121,8 @@ impl RecordingTime {
     }
 }
 
+fn vector_to_arr(v: slp_parser::Vector) -> [f32; 2] { [v.x, v.y] }
+
 /// this is the format dolphin uses for GCI filenames.
 /// It's not necessary to name the recordings like this - any name will work.
 pub fn dolphin_gci_filename(time: RecordingTime) -> String {
@@ -361,6 +363,7 @@ pub struct InputRecordings<'a> {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ReplayCreationError {
+    NotTwoPlayerGame,
     RecordingOutOfBounds,
     DurationTooLong,
     FilenameTooLong,
@@ -1133,6 +1136,15 @@ pub fn construct_tm_replay_from_slp(
     let mut frame = frame;
     let mut duration = duration;
 
+    let (low_port, high_port) = match game.low_high_ports() {
+        Some(p) => p,
+        None => return Err(ReplayCreationError::NotTwoPlayerGame),
+    };
+    let low_port_frames = game.frames[low_port].as_ref().unwrap();
+    let high_port_frames = game.frames[high_port].as_ref().unwrap();
+    let low_starting_character = game.info.starting_character_colours[low_port].unwrap();
+    let high_starting_character = game.info.starting_character_colours[high_port].unwrap();
+
     // search backwards for a good frame to export -------------------------
 
     // max number of frames to search back
@@ -1162,7 +1174,7 @@ pub fn construct_tm_replay_from_slp(
         true
     }
 
-    while !good_frame(&game.low_port_frames[frame]) || !good_frame(&game.high_port_frames[frame]) {
+    while !good_frame(&low_port_frames[frame]) || !good_frame(&high_port_frames[frame]) {
         if frame == 0 { return Err(ReplayCreationError::NoGoodExportFrame); }
         frame -= 1;
         duration += 1;
@@ -1170,12 +1182,12 @@ pub fn construct_tm_replay_from_slp(
 
     // We need to search forwards for entry
     while matches!(
-        game.low_port_frames[frame].state, 
+        low_port_frames[frame].state, 
         slp_parser::ActionState::Standard(slp_parser::StandardActionState::Entry
             | slp_parser::StandardActionState::EntryStart
             | slp_parser::StandardActionState::EntryEnd)
     ) || matches!(
-        game.high_port_frames[frame].state, 
+        high_port_frames[frame].state, 
         slp_parser::ActionState::Standard(slp_parser::StandardActionState::Entry
             | slp_parser::StandardActionState::EntryStart
             | slp_parser::StandardActionState::EntryEnd)
@@ -1185,7 +1197,7 @@ pub fn construct_tm_replay_from_slp(
 
     // export ---------------------------------------------------------------
 
-    if frame + duration >= game.low_port_frames.len() { return Err(ReplayCreationError::RecordingOutOfBounds) }
+    if frame + duration >= low_port_frames.len() { return Err(ReplayCreationError::RecordingOutOfBounds) }
     if name.len() >= 32 { return Err(ReplayCreationError::FilenameTooLong) }
     if !name.is_ascii() { return Err(ReplayCreationError::FilenameNotASCII) }
     if duration > 3600 { return Err(ReplayCreationError::DurationTooLong) }
@@ -1213,10 +1225,10 @@ pub fn construct_tm_replay_from_slp(
                             | ((f.buttons_mask & buttons_mask::A) >> 2)
                             | ((f.buttons_mask & buttons_mask::D_PAD_UP) << 4)
                     ) as u8,
-                    stick_x: (f.left_stick_coords[0] * 80.0) as i8,
-                    stick_y: (f.left_stick_coords[1] * 80.0) as i8,
-                    cstick_x: (f.right_stick_coords[0] * 80.0) as i8,
-                    cstick_y: (f.right_stick_coords[1] * 80.0) as i8,
+                    stick_x: (f.left_stick_coords.x * 80.0) as i8,
+                    stick_y: (f.left_stick_coords.y * 80.0) as i8,
+                    cstick_x: (f.right_stick_coords.x * 80.0) as i8,
+                    cstick_y: (f.right_stick_coords.y * 80.0) as i8,
                     trigger: (f.analog_trigger_value * 140.0) as u8,
                 }
             }).collect()
@@ -1237,7 +1249,7 @@ pub fn construct_tm_replay_from_slp(
         match prev_frame {
             Some(p) => {
                 prev_position = [p.position.x, p.position.y, 0.0];
-                prev_stick = p.left_stick_coords;
+                prev_stick = vector_to_arr(p.left_stick_coords);
             }
             None => {
                 prev_position = [frame.position.x, frame.position.y, 0.0];
@@ -1362,8 +1374,8 @@ pub fn construct_tm_replay_from_slp(
 
             prev_position,
             prev_stick,
-            stick: frame.left_stick_coords,
-            cstick: frame.right_stick_coords,
+            stick: vector_to_arr(frame.left_stick_coords),
+            cstick: vector_to_arr(frame.right_stick_coords),
             trigger: frame.analog_trigger_value,
 
             // state_blend, x_rotn_rot, anim_velocity
@@ -1373,12 +1385,12 @@ pub fn construct_tm_replay_from_slp(
 
     let (hmn_char, hmn_frames, cpu_char, cpu_frames) = match human {
         HumanPort::HumanLowPort => (
-            game.info.low_starting_character, &game.low_port_frames,
-            game.info.high_starting_character, &game.high_port_frames,
+            low_starting_character, &low_port_frames,
+            high_starting_character, &high_port_frames,
         ),
         HumanPort::HumanHighPort => (
-            game.info.high_starting_character, &game.high_port_frames,
-            game.info.low_starting_character, &game.low_port_frames,
+            high_starting_character, &high_port_frames,
+            low_starting_character, &low_port_frames,
         ),
     };
 

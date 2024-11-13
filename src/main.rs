@@ -101,8 +101,11 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         Err(e) => match e {
+            ReplayCreationError::NotTwoPlayerGame => {
+                return Err("Exports are only allowed in 1v1 replays.".into());
+            }
             ReplayCreationError::RecordingOutOfBounds => {
-                return Err("Error: The specified frame range is out of bounds".into());
+                return Err("The specified frame range is out of bounds".into());
             }
             ReplayCreationError::DurationTooLong => {
                 return Err(

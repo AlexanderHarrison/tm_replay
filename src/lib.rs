@@ -1136,7 +1136,7 @@ pub fn construct_tm_replay_from_slp(
     let mut frame = frame;
     let mut duration = duration;
 
-    let (low_port, high_port) = match game.low_high_ports() {
+    let (low_port, high_port) = match game.info.low_high_ports() {
         Some(p) => p,
         None => return Err(ReplayCreationError::NotTwoPlayerGame),
     };

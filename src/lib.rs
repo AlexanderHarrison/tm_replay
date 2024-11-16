@@ -1406,6 +1406,7 @@ pub fn construct_tm_replay_from_slp(
             hit_velocity: [frame.hit_velocity.x, frame.hit_velocity.y, 0.0],
             ground_velocity: [frame.ground_x_velocity, 0.0, 0.0],
             frames_since_hit,
+            char_fighter_var,
             char_state_var,
             hitlag_frames_left: frame.hitlag_frames,
             subaction_flags,

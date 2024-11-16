@@ -242,13 +242,19 @@ pub struct CharacterState {
     /// number of frames in knockback if in knockback, otherwise -1
     pub frames_since_hit: i32,
 
+    /// Generic character state variables, used for special actions.
+    ///
+    /// ## 4..8
+    /// - frames of float left
+    pub char_fighter_var: [u8; 208],
+
     /// Generic character state variables, used for most actions.
     ///
-    /// ## item 0:
+    /// ## 0..4
     /// - During hitstun and hitstop: the number of frames of hitstun remaining
     /// - During turn: set to 1 when actionable (???)
     ///
-    /// ## item 1:
+    /// ## 4..8
     /// - During turn: set to -1.0 if turning left or 1.0 if turning right
     pub char_state_var: [u8; 72],
 
@@ -283,6 +289,7 @@ impl Default for CharacterState {
             ground_velocity: [0.0; 3],
             frames_since_hit: -1,
             hitlag_frames_left: 0.0,
+            char_fighter_var: [0u8; 208],
             char_state_var: [0u8; 72],
             subaction_flags: [0u8; 16],
             prev_position: [0.0; 3],
@@ -834,7 +841,8 @@ pub fn construct_tm_replay(
         let collision_offset = 676; // CollData
         let camera_box_offset = 1092; // CameraBox
         let flags_offset = 3356;
-        let char_state_offset = 3592;
+        let char_fighter_var_offset = 3384;
+        let char_state_var_offset = 3592;
         let subaction_flags_offset = 3664;
         let dmg_offset = 3680;
         let playerblock_offset = 4396*2;
@@ -987,7 +995,8 @@ pub fn construct_tm_replay(
             ft_state[flags_offset..][20] &= !0x01;
         }
 
-        ft_state[char_state_offset..][0..72].copy_from_slice(&st.char_state_var);
+        ft_state[char_fighter_var_offset..][0..208].copy_from_slice(&st.char_fighter_var);
+        ft_state[char_state_var_offset..][0..72].copy_from_slice(&st.char_state_var);
         ft_state[subaction_flags_offset..][0..16].copy_from_slice(&st.subaction_flags);
 
         // callbacks (struct cb) ------------------------------
@@ -1272,6 +1281,8 @@ pub fn construct_tm_replay_from_slp(
             _ => state_speed = 1.0,
         }
 
+        let mut char_fighter_var = [0u8; 208];
+
         let mut char_state_var = [0u8; 72];
         char_state_var[0..4].copy_from_slice(&frame.hitstun_misc.to_be_bytes());
 
@@ -1292,6 +1303,35 @@ pub fn construct_tm_replay_from_slp(
                 // prevents other character from grabbing ledge
                 char_state_var[8..12].copy_from_slice(&1u32.to_be_bytes());
                 char_state_var[12..16].copy_from_slice(&40.0f32.to_be_bytes());
+            }
+            slp_parser::ActionState::Special(slp_parser::SpecialActionState::Peach(
+                slp_parser::SpecialActionStatePeach::Float
+                | slp_parser::SpecialActionStatePeach::FloatNair
+                | slp_parser::SpecialActionStatePeach::FloatFair
+                | slp_parser::SpecialActionStatePeach::FloatBair
+                | slp_parser::SpecialActionStatePeach::FloatUair
+                | slp_parser::SpecialActionStatePeach::FloatDair
+            )) => {
+                let mut first_float_frame = frame_idx - 1;
+                while first_float_frame > 0 {
+                    if matches!(frames[first_float_frame].state,
+                        slp_parser::ActionState::Special(slp_parser::SpecialActionState::Peach(
+                            slp_parser::SpecialActionStatePeach::Float
+                            | slp_parser::SpecialActionStatePeach::FloatNair
+                            | slp_parser::SpecialActionStatePeach::FloatFair
+                            | slp_parser::SpecialActionStatePeach::FloatBair
+                            | slp_parser::SpecialActionStatePeach::FloatUair
+                            | slp_parser::SpecialActionStatePeach::FloatDair))
+                    ) {
+                        first_float_frame -= 1;
+                    } else {
+                        first_float_frame += 1;
+                        break;
+                    }
+                }
+
+                let float_frames_left = 150 - (frame_idx - first_float_frame);
+                char_fighter_var[4..8].copy_from_slice(&(float_frames_left as f32).to_be_bytes());
             }
             _ => (),
         }

@@ -239,6 +239,7 @@ pub struct CharacterState {
     pub direction: slp_parser::Direction,
     pub percent: f32,
     pub last_ground_idx: u32,
+    pub jumps_remaining: u8,
     /// Zero if n/a. See https://docs.google.com/spreadsheets/d/1spibzWaitiA22s7db1AEw1hqQXzPDNFZHYjc4czv2dc
     pub stale_moves: [StaleMove; 10],
     pub anim_velocity: [f32; 3],
@@ -288,6 +289,7 @@ impl Default for CharacterState {
             direction: slp_parser::Direction::Left,
             state: slp_parser::ActionState::Standard(slp_parser::StandardActionState::Wait),
             state_frame: 0.0,
+            jumps_remaining: 0,
             percent: 0.0,
             stale_moves: [StaleMove::NULL; 10],
             anim_velocity: [0.0; 3],
@@ -1418,6 +1420,7 @@ pub fn construct_tm_replay_from_slp(
             frames_since_hit,
             char_fighter_var,
             char_state_var,
+            jumps_remaining: frame.jumps_remaining,
             hitlag_frames_left: frame.hitlag_frames,
             subaction_flags,
             state_flags: frame.state_flags,

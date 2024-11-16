@@ -37,6 +37,13 @@ impl StaleMove {
     pub const NULL: StaleMove = StaleMove { move_id: 0, instance_id: 0 };
 }
 
+fn jump_count(c: slp_parser::Character) -> u8 {
+    match c {
+        slp_parser::Character::Jigglypuff | slp_parser::Character::Kirby => 6,
+        _ => 2,
+    }
+}
+
 impl Default for RecordingMenuSettings {
     fn default() -> Self {
         RecordingMenuSettings {
@@ -845,6 +852,7 @@ pub fn construct_tm_replay(
         let char_state_var_offset = 3592;
         let subaction_flags_offset = 3664;
         let dmg_offset = 3680;
+        let jump_offset = 4048;
         let playerblock_offset = 4396*2;
         let stale_offset = 8972;
 
@@ -998,6 +1006,8 @@ pub fn construct_tm_replay(
         ft_state[char_fighter_var_offset..][0..208].copy_from_slice(&st.char_fighter_var);
         ft_state[char_state_var_offset..][0..72].copy_from_slice(&st.char_state_var);
         ft_state[subaction_flags_offset..][0..16].copy_from_slice(&st.subaction_flags);
+
+        ft_state[jump_offset..][0] = jump_count(st.character.character()) - st.jumps_remaining;
 
         // callbacks (struct cb) ------------------------------
 

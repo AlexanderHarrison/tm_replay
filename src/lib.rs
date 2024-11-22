@@ -1,5 +1,6 @@
 // pub mod gen;
 mod compress;
+mod autocancel;
 
 #[derive(Copy, Clone, Debug)]
 pub enum RecordingSlot {
@@ -1295,11 +1296,30 @@ pub fn construct_tm_replay_from_slp(
 
         let mut char_fighter_var = [0u8; 208];
 
+        let mut subaction_flags = [0u8; 16];
+        let lag_windows = &autocancel::AERIAL_LAG_WINDOWS[frame.character as usize];
+
         let mut char_state_var = [0u8; 72];
         char_state_var[0..4].copy_from_slice(&frame.hitstun_misc.to_be_bytes());
 
         // only first char state var is recorded. The rest we have to calculate, if they matter.
         match frame.state {
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::AttackAirN ) => {
+                if lag_windows.nair.contains(&(frame.anim_frame as u32)) { subaction_flags[3] = 1; }
+            },
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::AttackAirF ) => {
+                if lag_windows.fair.contains(&(frame.anim_frame as u32)) { subaction_flags[3] = 1; }
+            },
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::AttackAirB ) => {
+                if lag_windows.bair.contains(&(frame.anim_frame as u32)) { subaction_flags[3] = 1; }
+            },
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::AttackAirHi) => {
+                if lag_windows.uair.contains(&(frame.anim_frame as u32)) { subaction_flags[3] = 1; }
+            },
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::AttackAirLw) => {
+                if lag_windows.dair.contains(&(frame.anim_frame as u32)) { subaction_flags[3] = 1; }
+            },
+
             slp_parser::ActionState::Standard(slp_parser::StandardActionState::Turn) => {
                 let dir = match frame.direction {
                     slp_parser::Direction::Left => 1.0f32,
@@ -1369,8 +1389,6 @@ pub fn construct_tm_replay_from_slp(
             => frames[..frame_idx].iter().rev().position(|f| f.hitlag_frames != 0.0).unwrap() as i32,
             _ => -1 
         };
-
-        let subaction_flags = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
         let mut stale_count = 0;
         let mut stale_moves = [StaleMove::NULL; 10];

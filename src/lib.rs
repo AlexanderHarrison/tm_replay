@@ -941,6 +941,13 @@ pub fn construct_tm_replay(
         ft_state[collision_offset..][44..48].copy_from_slice(&st.position[1].to_be_bytes());
         ft_state[collision_offset..][48..52].copy_from_slice(&st.position[2].to_be_bytes());
 
+        if st.airborne {
+            // if the character is low enough, then the ecb in the air will be below the stage and
+            // the character will phase through the stage.
+            // It's almost never lower than 1.0 (probably)
+            ft_state[collision_offset..][176..180].copy_from_slice(&(1.0f32).to_be_bytes());
+        }
+
         ft_state[collision_offset..][332..336].copy_from_slice(&st.last_ground_idx.to_be_bytes());
 
         // camera data (CameraBox) -------------------------------------

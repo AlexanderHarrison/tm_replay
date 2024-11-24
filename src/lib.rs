@@ -944,7 +944,7 @@ pub fn construct_tm_replay(
         if st.airborne {
             // if the character is low enough, then the ecb in the air will be below the stage and
             // the character will phase through the stage.
-            // It's almost never lower than 1.0 (probably)
+            // It's almost never lower than 4.0 (probably)
             ft_state[collision_offset..][176..180].copy_from_slice(&(4.0f32).to_be_bytes());
         }
 

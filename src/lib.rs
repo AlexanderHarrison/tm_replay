@@ -144,15 +144,20 @@ pub fn dolphin_gci_filename(time: RecordingTime) -> String {
 #[derive(Clone, Debug)]
 pub struct RecordingState {
     pub time: RecordingTime,
-    /// Name to show when browsing in Training Mode.
-    pub filename: [u8; 31], // ascii
+    /// Name to show when browsing in Training Mode. Must be ascii.
+    /// Maybe avoid special characters too, just in case.
+    pub filename: [u8; 31],
     pub menu_settings: RecordingMenuSettings,
 
     /// Melee starts at frame -123. 'GO' disappears on frame 0.
     pub start_frame: i32,
     pub stage: slp_parser::Stage,
     pub hmn_state: CharacterState,
+    /// The stale moves and costume fields will be ignored.
+    pub hmn_follower_state: Option<CharacterState>,
     pub cpu_state: CharacterState,
+    /// The stale moves and costume fields will be ignored.
+    pub cpu_follower_state: Option<CharacterState>,
 }
 
 impl RecordingState {
@@ -843,8 +848,39 @@ pub fn construct_tm_replay(
     recording_save[0x0E..][..2].copy_from_slice(&stage.to_be_bytes());
 
     // write FtState values
+
+    fn write_ft_state(ft_state: &mut [u8], st: &CharacterState, follower: Option<&CharacterState>) {
+        let ft_savestate_data_size = 4396;
+        let playerblock_offset = ft_savestate_data_size*2;
+        let stale_offset = 8972;
+
+        write_ft_save_state_data(ft_state, st);
+        if let Some(follower_st) = follower { 
+            write_ft_save_state_data(&mut ft_state[ft_savestate_data_size..], follower_st);
+        }
+
+        // stale moves ------------------------------------
+
+        let stale_move_next_idx = st.stale_moves.iter().position(|st| st.move_id == 0).unwrap_or(0) as u32;
+        ft_state[stale_offset..][..4].copy_from_slice(&stale_move_next_idx.to_be_bytes());
+
+        for i in 0..10 {
+            let offset = stale_offset + 4 + 4*i;
+            let st = st.stale_moves[i];
+            ft_state[offset..][..2].copy_from_slice(&st.move_id.to_be_bytes());
+            ft_state[offset+2..][..2].copy_from_slice(&st.instance_id.to_be_bytes());
+        }
+
+        // Playerblock ---------------------------------
+
+        // fix stock icons
+        let character = st.character.character().to_u8_external().unwrap();
+        let costume = st.character.costume_idx();
+        ft_state[playerblock_offset..][4..8].copy_from_slice(&(character as u32).to_be_bytes());
+        ft_state[playerblock_offset..][68] = costume;
+    }
     
-    fn write_ft_state(ft_state: &mut [u8], st: &CharacterState) {
+    fn write_ft_save_state_data(ft_state: &mut [u8], st: &CharacterState) {
         // nested struct offsets
         let phys_offset = 40;
         let input_offset = 568;
@@ -856,8 +892,6 @@ pub fn construct_tm_replay(
         let subaction_flags_offset = 3664;
         let dmg_offset = 3680;
         let jump_offset = 4048;
-        let playerblock_offset = 4396*2;
-        let stale_offset = 8972;
 
         // state, direction, anim frame, anim speed, anim blend
         let state_offset = 4;
@@ -1035,33 +1069,21 @@ pub fn construct_tm_replay(
         ft_state[0x10CC..][0..4].copy_from_slice(&fns[16..20]); // IASA
         ft_state[0x10CC..][4..8].copy_from_slice(&fns[12..16]); // Anim
         ft_state[0x10CC..][8..20].copy_from_slice(&fns[20..32]); // Phys, Coll, Cam
-
-        // stale moves ------------------------------------
-
-        let stale_move_next_idx = st.stale_moves.iter().position(|st| st.move_id == 0).unwrap_or(0) as u32;
-        ft_state[stale_offset..][..4].copy_from_slice(&stale_move_next_idx.to_be_bytes());
-
-        for i in 0..10 {
-            let offset = stale_offset + 4 + 4*i;
-            let st = st.stale_moves[i];
-            ft_state[offset..][..2].copy_from_slice(&st.move_id.to_be_bytes());
-            ft_state[offset+2..][..2].copy_from_slice(&st.instance_id.to_be_bytes());
-        }
-
-        // Playerblock ---------------------------------
-
-        // fix stock icons
-        let character = st.character.character().to_u8_external().unwrap();
-        let costume = st.character.costume_idx();
-        ft_state[playerblock_offset..][4..8].copy_from_slice(&(character as u32).to_be_bytes());
-        ft_state[playerblock_offset..][68] = costume;
     }
 
     let st_offset = 312; // savestate offset - skip MatchInit in RecordingSave
     let ft_state_offset = 8+EVENT_DATASIZE; // FtState array offset - fields in Savestate;
     let ft_state_size = 9016;
-    write_ft_state(&mut recording_save[st_offset+ft_state_offset..][..ft_state_size], &state.hmn_state);
-    write_ft_state(&mut recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size], &state.cpu_state);
+    write_ft_state(
+        &mut recording_save[st_offset+ft_state_offset..][..ft_state_size],
+        &state.hmn_state,
+        state.hmn_follower_state.as_ref(),
+    );
+    write_ft_state(
+        &mut recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size],
+        &state.cpu_state,
+        state.cpu_follower_state.as_ref(),
+    );
 
     // write inputs
 
@@ -1171,8 +1193,20 @@ pub fn construct_tm_replay_from_slp(
     };
     let low_port_frames = game.frames[low_port].as_ref().unwrap();
     let high_port_frames = game.frames[high_port].as_ref().unwrap();
+    let low_follower_frames = game.follower_frames[low_port].as_ref();
+    let high_follower_frames = game.follower_frames[high_port].as_ref();
     let low_starting_character = game.info.starting_character_colours[low_port].unwrap();
     let high_starting_character = game.info.starting_character_colours[high_port].unwrap();
+
+    let mut frames = Vec::with_capacity(4);
+    frames.push(low_port_frames);
+    frames.push(high_port_frames);
+    if let Some(low_follower_frames) = low_follower_frames {
+        frames.push(low_follower_frames);
+    }
+    if let Some(high_follower_frames) = high_follower_frames {
+        frames.push(high_follower_frames);
+    }
 
     // search backwards for a good frame to export -------------------------
 
@@ -1203,7 +1237,7 @@ pub fn construct_tm_replay_from_slp(
         true
     }
 
-    while !good_frame(&low_port_frames[frame]) || !good_frame(&high_port_frames[frame]) {
+    while frames.iter().any(|f| !good_frame(&f[frame])) {
         if frame == 0 { return Err(ReplayCreationError::NoGoodExportFrame); }
         frame -= 1;
         duration += 1;
@@ -1462,15 +1496,36 @@ pub fn construct_tm_replay_from_slp(
         }
     }
 
-    let (hmn_char, hmn_frames, cpu_char, cpu_frames) = match human {
-        HumanPort::HumanLowPort => (
-            low_starting_character, &low_port_frames,
-            high_starting_character, &high_port_frames,
-        ),
-        HumanPort::HumanHighPort => (
-            high_starting_character, &high_port_frames,
-            low_starting_character, &low_port_frames,
-        ),
+    let low_state = state(low_starting_character, low_port_frames, high_port_frames, frame);
+    let high_state = state(high_starting_character, high_port_frames, low_port_frames, frame);
+    let low_follower_state = low_follower_frames
+        .map(|f| state(low_starting_character, f, high_port_frames, frame));
+    let high_follower_state = high_follower_frames
+        .map(|f| state(high_starting_character, f, low_port_frames, frame));
+
+    let hmn_frames;
+    let hmn_state;
+    let hmn_follower_state;
+    let cpu_frames;
+    let cpu_state;
+    let cpu_follower_state;
+    match human {
+        HumanPort::HumanLowPort => {
+            hmn_frames = low_port_frames;
+            cpu_frames = high_port_frames;
+            hmn_state = low_state;
+            cpu_state = high_state;
+            hmn_follower_state = low_follower_state;
+            cpu_follower_state = high_follower_state;
+        },
+        HumanPort::HumanHighPort => {
+            cpu_frames = low_port_frames;
+            hmn_frames = high_port_frames;
+            cpu_state = low_state;
+            hmn_state = high_state;
+            cpu_follower_state = low_follower_state;
+            hmn_follower_state = high_follower_state;
+        },
     };
 
     construct_tm_replay(
@@ -1494,8 +1549,10 @@ pub fn construct_tm_replay_from_slp(
             },
 
             start_frame: (frame as i32) - 123, // start at - 123
-            hmn_state: state(hmn_char, hmn_frames, cpu_frames, frame),
-            cpu_state: state(cpu_char, cpu_frames, hmn_frames, frame),
+            hmn_state,
+            hmn_follower_state,
+            cpu_state,
+            cpu_follower_state,
         },
         &InputRecordings {
             hmn_slots: [

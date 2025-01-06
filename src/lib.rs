@@ -283,8 +283,8 @@ pub struct CharacterState {
     pub stick: [f32; 2],
     pub cstick: [f32; 2],
     pub prev_stick: [f32; 2],
-    pub held: u32,
-    pub prev_held: u32,
+    pub held: u16,
+    pub prev_held: u16,
     pub trigger: f32,
 }
 
@@ -970,8 +970,8 @@ pub fn construct_tm_replay(
         ft_state[input_offset..][28..32].copy_from_slice(&st.cstick[1].to_be_bytes());
         ft_state[input_offset..][48..52].copy_from_slice(&st.trigger.to_be_bytes());
 
-        ft_state[input_offset..][60..64].copy_from_slice(&st.held.to_be_bytes());
-        ft_state[input_offset..][64..68].copy_from_slice(&st.prev_held.to_be_bytes());
+        ft_state[input_offset..][62..64].copy_from_slice(&st.held.to_be_bytes());
+        ft_state[input_offset..][66..68].copy_from_slice(&st.prev_held.to_be_bytes());
 
         let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
         ft_state[dmg_offset..][4..8].copy_from_slice(&percent_bytes); // percent
@@ -1326,7 +1326,7 @@ pub fn construct_tm_replay_from_slp(
             Some(p) => {
                 prev_position = [p.position.x, p.position.y, 0.0];
                 prev_stick = vector_to_arr(p.left_stick_coords);
-                prev_held = p.buttons_mask as u32;
+                prev_held = p.buttons_mask;
             }
             None => {
                 prev_position = [frame.position.x, frame.position.y, 0.0];
@@ -1505,7 +1505,7 @@ pub fn construct_tm_replay_from_slp(
             prev_held,
             stick: vector_to_arr(frame.left_stick_coords),
             cstick: vector_to_arr(frame.right_stick_coords),
-            held: frame.buttons_mask as u32,
+            held: frame.buttons_mask,
             trigger: frame.analog_trigger_value,
 
             // state_blend, x_rotn_rot, anim_velocity

@@ -970,8 +970,9 @@ pub fn construct_tm_replay(
         ft_state[input_offset..][28..32].copy_from_slice(&st.cstick[1].to_be_bytes());
         ft_state[input_offset..][48..52].copy_from_slice(&st.trigger.to_be_bytes());
 
-        ft_state[input_offset..][62..64].copy_from_slice(&st.held.to_be_bytes());
-        ft_state[input_offset..][66..68].copy_from_slice(&st.prev_held.to_be_bytes());
+        ft_state[input_offset..][60..64].copy_from_slice(&(st.held as u32).to_be_bytes());
+        ft_state[input_offset..][66..68].copy_from_slice(&(st.prev_held as u32).to_be_bytes());
+        ft_state[input_offset..][72..76].copy_from_slice(&((st.prev_held & st.held) as u32).to_be_bytes());
 
         let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
         ft_state[dmg_offset..][4..8].copy_from_slice(&percent_bytes); // percent

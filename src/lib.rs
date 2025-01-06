@@ -345,7 +345,7 @@ pub fn translate_buttons_from_slp(mask: u16) -> u8 {
       | ((mask & buttons_mask::R_DIGITAL) >> 4)
       | ((mask & buttons_mask::L_DIGITAL) >> 4)
       | ((mask & buttons_mask::X) >> 6)
-      | ((mask & buttons_mask::Y) >> 9)
+      | ((mask & buttons_mask::Y) >> 8)
       | ((mask & buttons_mask::B) >> 4)
       | ((mask & buttons_mask::A) >> 2)
       | ((mask & buttons_mask::D_PAD_UP) << 4);

@@ -283,6 +283,8 @@ pub struct CharacterState {
     pub stick: [f32; 2],
     pub cstick: [f32; 2],
     pub prev_stick: [f32; 2],
+    pub held: u32,
+    pub prev_held: u32,
     pub trigger: f32,
 }
 
@@ -311,6 +313,8 @@ impl Default for CharacterState {
             stick: [0.0; 2],
             cstick: [0.0; 2],
             prev_stick: [0.0; 2],
+            held: 0,
+            prev_held: 0,
             state_flags: [0; 5],
             trigger: 0.0,
             state_speed: 1.0,
@@ -330,6 +334,22 @@ pub mod buttons {
     pub const B: u8 = 0x20;
     pub const A: u8 = 0x40;
     pub const DPAD_UP: u8 = 0x80;
+}
+
+// the SLP file has buttons in a different layout.
+// We need to translate it into UP's layout.
+pub fn translate_buttons_from_slp(mask: u16) -> u8 {
+    use slp_parser::buttons_mask;
+
+    let translated = ((mask & buttons_mask::Z) >> 4)
+      | ((mask & buttons_mask::R_DIGITAL) >> 4)
+      | ((mask & buttons_mask::L_DIGITAL) >> 4)
+      | ((mask & buttons_mask::X) >> 7)
+      | ((mask & buttons_mask::Y) >> 7)
+      | ((mask & buttons_mask::B) >> 4)
+      | ((mask & buttons_mask::A) >> 2)
+      | ((mask & buttons_mask::D_PAD_UP) << 4);
+    translated as u8
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -950,6 +970,9 @@ pub fn construct_tm_replay(
         ft_state[input_offset..][28..32].copy_from_slice(&st.cstick[1].to_be_bytes());
         ft_state[input_offset..][48..52].copy_from_slice(&st.trigger.to_be_bytes());
 
+        ft_state[input_offset..][60..64].copy_from_slice(&st.held.to_be_bytes());
+        ft_state[input_offset..][64..68].copy_from_slice(&st.prev_held.to_be_bytes());
+
         let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
         ft_state[dmg_offset..][4..8].copy_from_slice(&percent_bytes); // percent
         ft_state[dmg_offset..][12..16].copy_from_slice(&percent_bytes); // temp percent???
@@ -1272,22 +1295,11 @@ pub fn construct_tm_replay_from_slp(
     filename[..name.len()].copy_from_slice(name.as_bytes());
 
     fn inputs_over_frames(frames: &[slp_parser::Frame]) -> Vec<Input> {
-        use slp_parser::buttons_mask;
-
         frames
             .iter()
             .map(|f| {
                 Input {
-                    button_flags: (
-                          ((f.buttons_mask & buttons_mask::Z) >> 4)
-                            | ((f.buttons_mask & buttons_mask::R_DIGITAL) >> 4)
-                            | ((f.buttons_mask & buttons_mask::L_DIGITAL) >> 4)
-                            | ((f.buttons_mask & buttons_mask::X) >> 7)
-                            | ((f.buttons_mask & buttons_mask::Y) >> 7)
-                            | ((f.buttons_mask & buttons_mask::B) >> 4)
-                            | ((f.buttons_mask & buttons_mask::A) >> 2)
-                            | ((f.buttons_mask & buttons_mask::D_PAD_UP) << 4)
-                    ) as u8,
+                    button_flags: translate_buttons_from_slp(f.buttons_mask),
                     stick_x: (f.left_stick_coords.x * 80.0) as i8,
                     stick_y: (f.left_stick_coords.y * 80.0) as i8,
                     cstick_x: (f.right_stick_coords.x * 80.0) as i8,
@@ -1309,14 +1321,17 @@ pub fn construct_tm_replay_from_slp(
 
         let prev_position;
         let prev_stick;
+        let prev_held;
         match prev_frame {
             Some(p) => {
                 prev_position = [p.position.x, p.position.y, 0.0];
                 prev_stick = vector_to_arr(p.left_stick_coords);
+                prev_held = p.buttons_mask as u32;
             }
             None => {
                 prev_position = [frame.position.x, frame.position.y, 0.0];
                 prev_stick = [0.0, 0.0];
+                prev_held = 0;
             }
         }
 
@@ -1487,8 +1502,10 @@ pub fn construct_tm_replay_from_slp(
 
             prev_position,
             prev_stick,
+            prev_held,
             stick: vector_to_arr(frame.left_stick_coords),
             cstick: vector_to_arr(frame.right_stick_coords),
+            held: frame.buttons_mask as u32,
             trigger: frame.analog_trigger_value,
 
             // state_blend, x_rotn_rot, anim_velocity

@@ -30,7 +30,7 @@ pub struct RecordingMenuSettings {
 
 #[derive(Copy, Clone, Debug)]
 pub struct StaleMove {
-    pub move_id: u16,
+    pub move_id: u8,
     pub instance_id: u16,
 }
 
@@ -887,7 +887,7 @@ pub fn construct_tm_replay(
         for i in 0..10 {
             let offset = stale_offset + 4 + 4*i;
             let st = st.stale_moves[i];
-            ft_state[offset..][..2].copy_from_slice(&st.move_id.to_be_bytes());
+            ft_state[offset+1..][..1].copy_from_slice(&st.move_id.to_be_bytes());
             ft_state[offset+2..][..2].copy_from_slice(&st.instance_id.to_be_bytes());
         }
 

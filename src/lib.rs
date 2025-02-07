@@ -1394,7 +1394,6 @@ pub fn construct_tm_replay_from_slp(
                     slp_parser::Direction::Right => -1.0f32,
                 };
                 char_state_var[4..8].copy_from_slice(&dir.to_be_bytes());
-                char_state_var[8..12].copy_from_slice(&(-dir).to_be_bytes());
             }
             slp_parser::ActionState::Standard(slp_parser::StandardActionState::CliffWait) => {
                 // prevents immediate fall from ledge

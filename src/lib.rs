@@ -1384,6 +1384,10 @@ pub fn construct_tm_replay_from_slp(
                 char_state_var[4..8].copy_from_slice(&1u32.to_be_bytes());
             },
 
+            slp_parser::ActionState::Standard(slp_parser::StandardActionState::KneeBend) => {
+                char_state_var[4..8].copy_from_slice(&3u32.to_be_bytes());
+            }
+
             slp_parser::ActionState::Standard(slp_parser::StandardActionState::Turn) => {
                 let dir = match frame.direction {
                     slp_parser::Direction::Left => 1.0f32,

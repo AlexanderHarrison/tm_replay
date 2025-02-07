@@ -1377,6 +1377,13 @@ pub fn construct_tm_replay_from_slp(
                 if lag_windows.dair.contains(&(frame.anim_frame as u32)) { subaction_flags[3] = 1; }
             },
 
+            slp_parser::ActionState::Standard(
+                slp_parser::StandardActionState::JumpF
+                | slp_parser::StandardActionState::JumpB
+            ) => {
+                char_state_var[4..8].copy_from_slice(&1u32.to_be_bytes());
+            },
+
             slp_parser::ActionState::Standard(slp_parser::StandardActionState::Turn) => {
                 let dir = match frame.direction {
                     slp_parser::Direction::Left => 1.0f32,

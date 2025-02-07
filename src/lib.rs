@@ -1404,6 +1404,21 @@ pub fn construct_tm_replay_from_slp(
                 char_state_var[8..12].copy_from_slice(&1u32.to_be_bytes());
                 char_state_var[12..16].copy_from_slice(&40.0f32.to_be_bytes());
             }
+
+            slp_parser::ActionState::Special(slp_parser::SpecialActionState::Marth(
+                slp_parser::SpecialActionStateMarth::DolphinSlashGround
+                | slp_parser::SpecialActionStateMarth::DolphinSlashAir
+            )) => {
+                if frame.anim_frame >= 6.0 { subaction_flags[3] = 1; }
+            }
+
+            slp_parser::ActionState::Special(slp_parser::SpecialActionState::Roy(
+                slp_parser::SpecialActionStateRoy::BlazerGround
+                | slp_parser::SpecialActionStateRoy::BlazerAir
+            )) => {
+                if frame.anim_frame >= 10.0 { subaction_flags[3] = 1; }
+            }
+
             slp_parser::ActionState::Special(slp_parser::SpecialActionState::Peach(
                 slp_parser::SpecialActionStatePeach::Float
                 | slp_parser::SpecialActionStatePeach::FloatNair

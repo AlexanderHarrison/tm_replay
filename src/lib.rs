@@ -1480,6 +1480,11 @@ pub fn construct_tm_replay_from_slp(
         loop {
             let instance_id = opponent_frames[i].last_hit_by_instance_id;
 
+            // prevent last move from staling again on opponent death
+            if instance_id == 0 {
+                prev_instance_id = 0;
+            }
+
             if instance_id != prev_instance_id {
                 let move_id = frames[i].last_hitting_attack_id;
                 if move_id == 0 { break; } // end on death
@@ -1492,6 +1497,17 @@ pub fn construct_tm_replay_from_slp(
                     prev_instance_id = instance_id;
                 }
             }
+
+            // for whatever reason, grabbing alters opponent's last_hit_by_instance_id,
+            // so we need to remove that.
+            use slp_parser::StandardActionState as Sas;
+            if matches!(opponent_frames[i].state, slp_parser::ActionState::Standard(Sas::CapturePulledHi | Sas::CapturePulledLw))
+                && stale_count != 0
+                && stale_moves[stale_count-1].instance_id == instance_id
+            {
+                stale_count -= 1;
+            }
+
 
             if i == 0 { break }
             i -= 1;

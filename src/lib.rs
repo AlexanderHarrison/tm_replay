@@ -1617,11 +1617,11 @@ pub fn construct_tm_replay_from_slp(
         },
         &InputRecordings {
             hmn_slots: [
-                Some(&inputs_over_frames(&hmn_frames[frame+1..frame+duration+1])),
+                Some(&inputs_over_frames(&hmn_frames[frame+1..frame+duration])),
                 None, None, None, None, None
             ],
             cpu_slots: [
-                Some(&inputs_over_frames(&cpu_frames[frame+1..frame+duration+1])),
+                Some(&inputs_over_frames(&cpu_frames[frame+1..frame+duration])),
                 None, None, None, None, None
             ],
         }

@@ -1589,6 +1589,12 @@ pub fn construct_tm_replay_from_slp(
         },
     };
 
+    let inputs_range = if duration == 0 {
+        frame..frame
+    } else {
+        frame+1..frame+duration
+    };
+
     construct_tm_replay(
         &RecordingState {
             stage: info.stage,
@@ -1617,11 +1623,11 @@ pub fn construct_tm_replay_from_slp(
         },
         &InputRecordings {
             hmn_slots: [
-                Some(&inputs_over_frames(&hmn_frames[frame+1..frame+duration])),
+                Some(&inputs_over_frames(&hmn_frames[inputs_range.clone()])),
                 None, None, None, None, None
             ],
             cpu_slots: [
-                Some(&inputs_over_frames(&cpu_frames[frame+1..frame+duration])),
+                Some(&inputs_over_frames(&cpu_frames[inputs_range.clone()])),
                 None, None, None, None, None
             ],
         }

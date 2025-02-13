@@ -1195,7 +1195,6 @@ pub enum HumanPort {
 /// - animation blending
 ///
 /// # Errors
-/// - If frame + duration is out of bounds
 /// - If duration is greater than 3600 frames
 /// - If name is longer than 31 bytes
 /// - If name is not ASCII
@@ -1284,7 +1283,10 @@ pub fn construct_tm_replay_from_slp(
 
     // export ---------------------------------------------------------------
 
-    if frame + duration >= low_port_frames.len() { return Err(ReplayCreationError::RecordingOutOfBounds) }
+    if frame + duration >= low_port_frames.len() {
+        duration = low_port_frames.len() - frame;
+    }
+
     if name.len() >= 32 { return Err(ReplayCreationError::FilenameTooLong) }
     if !name.is_ascii() { return Err(ReplayCreationError::FilenameNotASCII) }
     if duration > 3600 { return Err(ReplayCreationError::DurationTooLong) }

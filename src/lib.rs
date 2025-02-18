@@ -1399,6 +1399,7 @@ pub fn construct_tm_replay(
         ft_state[flags_offset..][11] = st.state_flags[2];
         ft_state[flags_offset..][12] = st.state_flags[3];
         ft_state[flags_offset..][15] = st.state_flags[4];
+        println!("{:08x}", st.state_flags[4]);
 
         // multijump flag
         if matches!(

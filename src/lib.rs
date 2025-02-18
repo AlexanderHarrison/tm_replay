@@ -256,6 +256,9 @@ pub struct CharacterState {
     /// number of frames in knockback if in knockback, otherwise -1
     pub frames_since_hit: i32,
 
+    /// number of consecutive frames offscreen. Counts to 60 then the player takes damage.
+    pub offscreen_damage_timer: u32,
+
     /// Generic character state variables, used for special actions.
     ///
     /// ## 4..8
@@ -631,6 +634,7 @@ impl Default for CharacterState {
             hit_velocity: [0.0; 3],
             ground_velocity: [0.0; 3],
             frames_since_hit: -1,
+            offscreen_damage_timer: 0,
             hitlag_frames_left: 0.0,
             char_fighter_var: [0u8; 208],
             char_state_var: [0u8; 72],
@@ -1334,6 +1338,7 @@ pub fn construct_tm_replay(
         ft_state[dmg_offset..][4..8].copy_from_slice(&percent_bytes); // percent
         ft_state[dmg_offset..][12..16].copy_from_slice(&percent_bytes); // temp percent???
         ft_state[dmg_offset..][0x80..0x84].copy_from_slice(&st.frames_since_hit.to_be_bytes()); // frames in knockback
+        ft_state[dmg_offset..][0xE4..0xE8].copy_from_slice(&st.offscreen_damage_timer.to_be_bytes());
         
         // collision data (CollData) ------------------
 
@@ -1399,7 +1404,6 @@ pub fn construct_tm_replay(
         ft_state[flags_offset..][11] = st.state_flags[2];
         ft_state[flags_offset..][12] = st.state_flags[3];
         ft_state[flags_offset..][15] = st.state_flags[4];
-        println!("{:08x}", st.state_flags[4]);
 
         // multijump flag
         if matches!(
@@ -1875,6 +1879,16 @@ pub fn construct_tm_replay_from_slp(
         // reverse order, since we iterated backwards
         stale_moves[..stale_count].reverse();
 
+        let mut offscreen_damage_timer = 0;
+        let mut i = frame_idx;
+        loop {
+            if frames[i].state_flags[4] & 0x80 == 0 { break; }
+            if i == 0 { break; }
+            i -= 1;
+            offscreen_damage_timer += 1;
+            if offscreen_damage_timer == 60 { offscreen_damage_timer = 0; }
+        }
+
         let mut input_timers = InputTimers::default();
         if frame_idx != 0 {
             // 60 frames to comput timers should be enough.
@@ -1916,6 +1930,7 @@ pub fn construct_tm_replay_from_slp(
             subaction_flags,
             state_flags: frame.state_flags,
             stale_moves,
+            offscreen_damage_timer,
 
             prev_position,
             prev_stick,

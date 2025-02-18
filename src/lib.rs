@@ -1301,6 +1301,35 @@ pub fn construct_tm_replay(
         ft_state[input_offset..][64..68].copy_from_slice(&(st.prev_held as u32).to_be_bytes());
         ft_state[input_offset..][72..76].copy_from_slice(&((st.prev_held & st.held) as u32).to_be_bytes());
 
+        ft_state[input_offset..][0x50] = st.input_timers.timer_lstick_tilt_x;            
+        ft_state[input_offset..][0x51] = st.input_timers.timer_lstick_tilt_y;            
+        ft_state[input_offset..][0x52] = st.input_timers.timer_trigger_analog;           
+        ft_state[input_offset..][0x53] = st.input_timers.timer_lstick_smash_x;           
+        ft_state[input_offset..][0x54] = st.input_timers.timer_lstick_smash_y;           
+        ft_state[input_offset..][0x55] = st.input_timers.timer_trigger_digital;          
+        ft_state[input_offset..][0x56] = st.input_timers.timer_lstick_any_x;             
+        ft_state[input_offset..][0x57] = st.input_timers.timer_lstick_any_y;             
+        ft_state[input_offset..][0x58] = st.input_timers.timer_trigger_any;              
+        ft_state[input_offset..][0x59] = st.input_timers.x679_x;                         
+        ft_state[input_offset..][0x5A] = st.input_timers.x67A_y;                         
+        ft_state[input_offset..][0x5B] = st.input_timers.x67B;                           
+        ft_state[input_offset..][0x5C] = st.input_timers.timer_a;                        
+        ft_state[input_offset..][0x5D] = st.input_timers.timer_b;                        
+        ft_state[input_offset..][0x5E] = st.input_timers.timer_xy;                       
+        ft_state[input_offset..][0x5F] = st.input_timers.timer_trigger_any_ignore_hitlag;
+        ft_state[input_offset..][0x60] = st.input_timers.timer_LR;                       
+        ft_state[input_offset..][0x61] = st.input_timers.timer_padup;                    
+        ft_state[input_offset..][0x62] = st.input_timers.timer_paddown;                  
+        ft_state[input_offset..][0x63] = st.input_timers.timer_item_release;             
+        ft_state[input_offset..][0x64] = st.input_timers.since_rapid_lr;                 
+        ft_state[input_offset..][0x65] = st.input_timers.timer_jump;                     
+        ft_state[input_offset..][0x66] = st.input_timers.timer_specialhi;                
+        ft_state[input_offset..][0x67] = st.input_timers.timer_speciallw;                
+        ft_state[input_offset..][0x68] = st.input_timers.timer_specials;                 
+        ft_state[input_offset..][0x69] = st.input_timers.timer_specialn;                 
+        ft_state[input_offset..][0x6A] = st.input_timers.timer_jump_lockout;             
+        ft_state[input_offset..][0x6B] = st.input_timers.timer_specialhi_lockout;        
+
         let percent_bytes = (st.percent*0.5).to_be_bytes(); // percent is stored halved for some reason???
         ft_state[dmg_offset..][4..8].copy_from_slice(&percent_bytes); // percent
         ft_state[dmg_offset..][12..16].copy_from_slice(&percent_bytes); // temp percent???

@@ -1890,8 +1890,6 @@ pub fn construct_tm_replay_from_slp(
             }
         }
 
-        dbg!(input_timers);
-
         CharacterState {
             // respect zelda/sheik transformation
             character: slp_parser::CharacterColour::from_character_and_colour(

@@ -286,6 +286,332 @@ pub struct CharacterState {
     pub held: u16,
     pub prev_held: u16,
     pub trigger: f32,
+    pub input_timers: InputTimers,
+}
+
+#[derive(Copy, Clone, Debug)]
+#[allow(non_snake_case)]
+pub struct InputTimers {
+    pub timer_lstick_tilt_x             : u8,
+    pub timer_lstick_tilt_y             : u8,
+    pub timer_trigger_analog            : u8,
+    pub timer_lstick_smash_x            : u8,
+    pub timer_lstick_smash_y            : u8,
+    pub timer_trigger_digital           : u8,
+    pub timer_lstick_any_x              : u8,
+    pub timer_lstick_any_y              : u8,
+    pub timer_trigger_any               : u8,
+    pub x679_x                          : u8,
+    pub x67A_y                          : u8,
+    pub x67B                            : u8,
+    pub timer_a                         : u8,
+    pub timer_b                         : u8,
+    pub timer_xy                        : u8,
+    pub timer_trigger_any_ignore_hitlag : u8,
+    pub timer_LR                        : u8,
+    pub timer_padup                     : u8,
+    pub timer_paddown                   : u8,
+    pub timer_item_release              : u8,
+    pub since_rapid_lr                  : u8,
+    pub timer_jump                      : u8,
+    pub timer_specialhi                 : u8,
+    pub timer_speciallw                 : u8,
+    pub timer_specials                  : u8,
+    pub timer_specialn                  : u8,
+    pub timer_jump_lockout              : u8,
+    pub timer_specialhi_lockout         : u8,
+}
+
+impl InputTimers {
+    // taken from decomp src/melee/ft/fighter.c
+    pub fn advance(&mut self, frame: &slp_parser::Frame, frame_prev: &slp_parser::Frame) {
+        self.timer_lstick_any_x += 1;
+        if self.timer_lstick_any_x > 0xFE {
+            self.timer_lstick_any_x = 0xFE;
+        }
+
+        let lstick = frame.left_stick_coords;
+        let lstick1 = frame_prev.left_stick_coords;
+
+        if lstick.x >= 0.25 {
+            if lstick1.x >= 0.25 {
+                self.timer_lstick_tilt_x += 1;
+                if self.timer_lstick_tilt_x > 0xFE {
+                    self.timer_lstick_tilt_x = 0xFE;
+                }
+                self.timer_lstick_smash_x += 1;
+                if self.timer_lstick_smash_x > 0xFE {
+                    self.timer_lstick_smash_x = 0xFE;
+                }
+                self.x679_x += 1;
+                if self.x679_x > 0xFE {
+                    self.x679_x = 0xFE;
+                }
+            } else {
+                self.timer_lstick_any_x = 0;
+                self.timer_lstick_smash_x = 0;
+                self.timer_lstick_tilt_x = 0;
+            }
+        } else if lstick.x <= -0.25 {
+            if lstick1.x <= -0.25 {
+                self.timer_lstick_tilt_x += 1;
+                if self.timer_lstick_tilt_x > 0xFE {
+                    self.timer_lstick_tilt_x = 0xFE;
+                }
+                self.timer_lstick_smash_x += 1;
+                if self.timer_lstick_smash_x > 0xFE {
+                    self.timer_lstick_smash_x = 0xFE;
+                }
+                self.x679_x += 1;
+                if self.x679_x > 0xFE {
+                    self.x679_x = 0xFE;
+                }
+            } else {
+                self.timer_lstick_any_x = 0;
+                self.timer_lstick_smash_x = 0;
+                self.timer_lstick_tilt_x = 0;
+            }
+        } else {
+            self.x679_x = 0xFE;
+            self.timer_lstick_smash_x = 0xFE;
+            self.timer_lstick_tilt_x = 0xFE;
+        }
+
+        self.timer_lstick_any_y += 1;
+        if self.timer_lstick_any_y > 0xFE {
+            self.timer_lstick_any_y = 0xFE;
+        }
+
+        if lstick.y >= 0.25 {
+            if lstick1.y >= 0.25 {
+                self.timer_lstick_tilt_y += 1;
+                if self.timer_lstick_tilt_y > 0xFE {
+                    self.timer_lstick_tilt_y = 0xFE;
+                }
+                self.timer_lstick_smash_y += 1;
+                if self.timer_lstick_smash_y > 0xFE {
+                    self.timer_lstick_smash_y = 0xFE;
+                }
+                self.x67A_y += 1;
+                if self.x67A_y > 0xFE {
+                    self.x67A_y = 0xFE;
+                }
+            } else {
+                self.timer_lstick_any_y = 0;
+                self.timer_lstick_smash_y = 0;
+                self.timer_lstick_tilt_y = 0;
+            }
+        } else if lstick.y <= -0.25 {
+            if lstick1.y <= -0.25 {
+                self.timer_lstick_tilt_y += 1;
+                if self.timer_lstick_tilt_y > 0xFE {
+                    self.timer_lstick_tilt_y = 0xFE;
+                }
+                self.timer_lstick_smash_y += 1;
+                if self.timer_lstick_smash_y > 0xFE {
+                    self.timer_lstick_smash_y = 0xFE;
+                }
+                self.x67A_y += 1;
+                if self.x67A_y > 0xFE {
+                    self.x67A_y = 0xFE;
+                }
+            } else {
+                self.timer_lstick_any_y = 0;
+                self.timer_lstick_smash_y = 0;
+                self.timer_lstick_tilt_y = 0;
+            }
+        } else {
+            self.x67A_y = 0xFE;
+            self.timer_lstick_smash_y = 0xFE;
+            self.timer_lstick_tilt_y = 0xFE;
+        }
+
+        if lb_8000D148(lstick1.x, lstick1.y, lstick.x, lstick.y, 0.0, 0.0, 0.25) {
+            self.x67A_y = 0;
+            self.x679_x = 0;
+        }
+
+        self.timer_trigger_any += 1;
+        if self.timer_trigger_any > 0xFE {
+            self.timer_trigger_any = 0xFE;
+        }
+
+        if frame.analog_trigger_value >= 0.25 {
+            if frame.analog_trigger_value >= 0.25 {
+                self.timer_trigger_analog += 1;
+                if self.timer_trigger_analog > 0xFE {
+                    self.timer_trigger_analog = 0xFE;
+                }
+                self.timer_trigger_digital += 1;
+                if self.timer_trigger_digital > 0xFE {
+                    self.timer_trigger_digital = 0xFE;
+                }
+                self.x67B += 1;
+                if self.x67B > 0xFE {
+                    self.x67B = 0xFE;
+                }
+            } else {
+                self.x67B = 0;
+                self.timer_trigger_any = 0;
+                self.timer_trigger_digital = 0;
+                self.timer_trigger_analog = 0;
+            }
+        } else {
+            self.x67B = 0xFE;
+            self.timer_trigger_digital = 0xFE;
+            self.timer_trigger_analog = 0xFE;
+        }
+
+        let down = frame.buttons_mask;
+        use slp_parser::buttons_mask as button;
+
+        if down & button::A != 0 {
+            self.timer_item_release = self.timer_a;
+            self.timer_a = 0;
+        } else if self.timer_a < 0xFF {
+            self.timer_a += 1;
+        }
+
+        if down & button::B != 0 {
+            self.timer_b = 0;
+        } else if self.timer_b < 0xFF {
+            self.timer_b += 1;
+        }
+
+        if down & (button::X | button::Y) != 0 {
+            self.timer_xy = 0;
+        } else if self.timer_xy < 0xFF {
+            self.timer_xy += 1;
+        }
+
+        if down & button::D_PAD_UP != 0 {
+            self.timer_padup = 0;
+        } else if self.timer_padup < 0xFF {
+            self.timer_padup += 1;
+        }
+
+        if down & button::D_PAD_DOWN != 0 {
+            self.timer_paddown = 0;
+        } else if self.timer_paddown < 0xFF {
+            self.timer_paddown += 1;
+        }
+
+        // THIS BUTTON DOESNT EXIST IN MEX OR SLP????
+        //if (down & 0x80000000) {
+        //    self.timer_trigger_any_ignore_hitlag = 0;
+        //} else if (self.timer_trigger_any_ignore_hitlag < 0xFF) {
+        //    self.timer_trigger_any_ignore_hitlag += 1;
+        //}
+
+        if down & (button::L_DIGITAL | button::R_DIGITAL) != 0 {
+            self.since_rapid_lr = self.timer_LR;
+            self.timer_LR = 0;
+        } else if self.timer_LR < 0xFF {
+            self.timer_LR += 1;
+        }
+    }
+}
+
+// taken from decomp src/melee/lb/lb_00CE.c
+// IDK what this does.
+#[allow(non_snake_case)]
+fn lb_8000D148(
+    point0_x: f32, point0_y: f32,
+    point1_x: f32, point1_y: f32,
+    point2_x: f32, point2_y: f32,
+    threshold: f32
+) -> bool {
+    let dist_01;
+    let mut var_f0;
+    {
+        let diff_01_y = point0_y - point1_y;
+        let diff_01_x = point1_x - point0_x;
+        let dist_squared_01 = diff_01_x * diff_01_x + diff_01_y * diff_01_y;
+        if dist_squared_01 < 0.00001 {
+            return false;
+        }
+        dist_01 = dist_squared_01.sqrt();
+
+        var_f0 = (point0_x * point1_y - point0_y * point1_x)
+                 + (diff_01_x * point2_x + diff_01_y * point2_y);
+        if var_f0 < 0.0 {
+            var_f0 = -var_f0;
+        }
+    }
+
+    if (var_f0 / dist_01) <= threshold {
+        let diff_02_x = point0_x - point2_x;
+        let diff_02_y = point0_y - point2_y;
+        let diff_12_x = point1_x - point2_x;
+        let diff_12_y = point1_y - point2_y;
+        let threshold_squared = threshold * threshold;
+        let dist_squared_02 = diff_02_x * diff_02_x + diff_02_y * diff_02_y;
+        let dist_squared_12 = diff_12_x * diff_12_x + diff_12_y * diff_12_y;
+        if dist_squared_02 < threshold_squared {
+            if dist_squared_12 > threshold_squared {
+                return true;
+            }
+            if dist_squared_12 < threshold_squared {
+                return false;
+            }
+            return true;
+        }
+        if dist_squared_02 > threshold_squared {
+            if dist_squared_12 > threshold_squared {
+                // If an axis of point0 and point1 are on opposite sides of
+                // point2, return true.
+                if  ((point0_x > point2_x) && (point1_x < point2_x)) ||
+                    ((point0_x < point2_x) && (point1_x > point2_x)) ||
+                    ((point0_y > point2_y) && (point1_y < point2_y)) ||
+                    ((point0_y < point2_y) && (point1_y > point2_y))
+                {
+                    return true;
+                }
+                return false;
+            }
+            if dist_squared_12 < threshold_squared {
+                return true;
+            }
+            return true;
+        }
+        return true;
+    }
+    return false;
+}
+
+impl Default for InputTimers {
+    fn default() -> Self {
+        InputTimers {
+            timer_lstick_tilt_x             : 0xFE,
+            timer_lstick_tilt_y             : 0xFE,
+            timer_trigger_analog            : 0xFE,
+            timer_lstick_smash_x            : 0xFE,
+            timer_lstick_smash_y            : 0xFE,
+            timer_trigger_digital           : 0xFE,
+            timer_lstick_any_x              : 0xFE,
+            timer_lstick_any_y              : 0xFE,
+            timer_trigger_any               : 0xFE,
+            x679_x                          : 0xFE,
+            x67A_y                          : 0xFE,
+            x67B                            : 0xFE,
+            timer_a                         : 0xFF,
+            timer_b                         : 0xFF,
+            timer_xy                        : 0xFF,
+            timer_trigger_any_ignore_hitlag : 0xFF,
+            timer_LR                        : 0xFF,
+            timer_padup                     : 0xFF,
+            timer_paddown                   : 0xFF,
+            timer_item_release              : 0xFF,
+            since_rapid_lr                  : 0xFF,
+            timer_jump                      : 0xFF,
+            timer_specialhi                 : 0xFF,
+            timer_speciallw                 : 0xFF,
+            timer_specials                  : 0xFF,
+            timer_specialn                  : 0xFF,
+            timer_jump_lockout              : 0xFF,
+            timer_specialhi_lockout         : 0xFF,
+        }
+    }
 }
 
 impl Default for CharacterState {
@@ -313,6 +639,7 @@ impl Default for CharacterState {
             stick: [0.0; 2],
             cstick: [0.0; 2],
             prev_stick: [0.0; 2],
+            input_timers: InputTimers::default(),
             held: 0,
             prev_held: 0,
             state_flags: [0; 5],
@@ -1518,6 +1845,24 @@ pub fn construct_tm_replay_from_slp(
         // reverse order, since we iterated backwards
         stale_moves[..stale_count].reverse();
 
+        let mut input_timers = InputTimers::default();
+        if frame_idx != 0 {
+            // 60 frames to comput timers should be enough.
+            let mut min_frame = frame_idx.saturating_sub(60) + 1;
+
+            for i in min_frame..=frame_idx {
+                if frames[i].state.broad_state() == slp_parser::BroadState::Standard(slp_parser::StandardBroadState::Dead) {
+                    min_frame = i;
+                }
+            }
+
+            for i in min_frame..=frame_idx {
+                input_timers.advance(&frames[i], &frames[i-1]);
+            }
+        }
+
+        dbg!(input_timers);
+
         CharacterState {
             // respect zelda/sheik transformation
             character: slp_parser::CharacterColour::from_character_and_colour(
@@ -1551,6 +1896,7 @@ pub fn construct_tm_replay_from_slp(
             cstick: vector_to_arr(frame.right_stick_coords),
             held: frame.buttons_mask,
             trigger: frame.analog_trigger_value,
+            input_timers,
 
             // state_blend, x_rotn_rot, anim_velocity
             ..Default::default()

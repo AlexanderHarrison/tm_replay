@@ -2,6 +2,9 @@
 mod compress;
 mod autocancel;
 
+pub const MIN_VERSION_MAJOR: u8 = 3;
+pub const MIN_VERSION_MINOR: u8 = 16;
+
 #[derive(Copy, Clone, Debug)]
 pub enum RecordingSlot {
     Random = 0,
@@ -736,6 +739,7 @@ pub struct InputRecordings<'a> {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ReplayCreationError {
+    OutdatedReplay,
     NotTwoPlayerGame,
     RecordingOutOfBounds,
     DurationTooLong,
@@ -1568,6 +1572,12 @@ pub fn construct_tm_replay_from_slp(
     duration: usize,
     name: &str,
 ) -> Result<Vec<u8>, ReplayCreationError> {
+    let major = game.info.version_major;
+    let minor = game.info.version_minor;
+    if major < MIN_VERSION_MAJOR || (major == MIN_VERSION_MAJOR && minor < MIN_VERSION_MINOR) {
+        return Err(ReplayCreationError::OutdatedReplay);
+    }
+
     let mut frame = frame;
     let mut duration = duration;
 

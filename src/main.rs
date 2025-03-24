@@ -134,6 +134,12 @@ fn run() -> Result<(), String> {
             ReplayCreationError::ZeldaOnCpu => {
                 return Err("Error: Zelda as CPU is not supported due to a known bug".into());
             }
+            ReplayCreationError::OutdatedReplay => {
+                return Err(format!(
+                    "Error: Replay is out of date. Minimum slp version is {}.{}.0",
+                    MIN_VERSION_MAJOR, MIN_VERSION_MINOR
+                ));
+            }
         },
     }
 }

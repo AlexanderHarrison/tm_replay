@@ -31,16 +31,6 @@ pub struct RecordingMenuSettings {
     pub auto_restore: bool,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct StaleMove {
-    pub move_id: u8,
-    pub instance_id: u16,
-}
-
-impl StaleMove {
-    pub const NULL: StaleMove = StaleMove { move_id: 0, instance_id: 0 };
-}
-
 fn jump_count(c: slp_parser::Character) -> u8 {
     match c {
         slp_parser::Character::Jigglypuff | slp_parser::Character::Kirby => 6,
@@ -250,7 +240,7 @@ pub struct CharacterState {
     pub last_ground_idx: u32,
     pub jumps_remaining: u8,
     /// Zero if n/a. See https://docs.google.com/spreadsheets/d/1spibzWaitiA22s7db1AEw1hqQXzPDNFZHYjc4czv2dc
-    pub stale_moves: [StaleMove; 10],
+    pub stale_moves: [slp_parser::StaleMove; 10],
     pub anim_velocity: [f32; 3],
     pub self_velocity: [f32; 3],
     pub hit_velocity: [f32; 3],
@@ -631,7 +621,7 @@ impl Default for CharacterState {
             state_frame: 0.0,
             jumps_remaining: 0,
             percent: 0.0,
-            stale_moves: [StaleMove::NULL; 10],
+            stale_moves: [slp_parser::StaleMove::NULL; 10],
             anim_velocity: [0.0; 3],
             self_velocity: [0.0; 3],
             hit_velocity: [0.0; 3],
@@ -1216,13 +1206,15 @@ pub fn construct_tm_replay(
 
         // stale moves ------------------------------------
 
-        let stale_move_next_idx = st.stale_moves.iter().position(|st| st.move_id == 0).unwrap_or(0) as u32;
+        let stale_move_next_idx = st.stale_moves.iter()
+            .position(|st| st.attack == slp_parser::AttackKind::Null)
+            .unwrap_or(0) as u32;
         ft_state[stale_offset..][..4].copy_from_slice(&stale_move_next_idx.to_be_bytes());
 
         for i in 0..10 {
             let offset = stale_offset + 4 + 4*i;
             let st = st.stale_moves[i];
-            ft_state[offset+1..][..1].copy_from_slice(&st.move_id.to_be_bytes());
+            ft_state[offset+1..][..1].copy_from_slice(&(st.attack as u8).to_be_bytes());
             ft_state[offset+2..][..2].copy_from_slice(&st.instance_id.to_be_bytes());
         }
 
@@ -1555,7 +1547,6 @@ pub enum HumanPort {
 /// Returns GCI file bytes.
 ///
 /// # Unimplemented
-/// - stale moves
 /// - items
 /// - animation blending
 ///
@@ -1844,50 +1835,11 @@ pub fn construct_tm_replay_from_slp(
             => frames[..frame_idx].iter().rev().position(|f| f.hitlag_frames != 0.0).unwrap() as i32,
             _ => -1 
         };
-
-        let mut stale_count = 0;
-        let mut stale_moves = [StaleMove::NULL; 10];
-
-        let mut i = frame_idx;
-        let mut prev_instance_id = u16::MAX;
-        loop {
-            let instance_id = opponent_frames[i].last_hit_by_instance_id;
-
-            // prevent last move from staling again on opponent death
-            if instance_id == 0 {
-                prev_instance_id = 0;
-            }
-
-            if instance_id != prev_instance_id {
-                let move_id = frames[i].last_hitting_attack_id;
-                if move_id == 0 { break; } // end on death
-
-                // id 1 does not stale
-                if move_id != 1 { 
-                    stale_moves[stale_count] = StaleMove { move_id, instance_id };
-                    stale_count += 1;
-                    if stale_count == 10 { break; }
-                    prev_instance_id = instance_id;
-                }
-            }
-
-            // for whatever reason, grabbing alters opponent's last_hit_by_instance_id,
-            // so we need to remove that.
-            use slp_parser::StandardActionState as Sas;
-            if matches!(opponent_frames[i].state, slp_parser::ActionState::Standard(Sas::CapturePulledHi | Sas::CapturePulledLw))
-                && stale_count != 0
-                && stale_moves[stale_count-1].instance_id == instance_id
-            {
-                stale_count -= 1;
-            }
-
-
-            if i == 0 { break }
-            i -= 1;
-        }
-
-        // reverse order, since we iterated backwards
-        stale_moves[..stale_count].reverse();
+        
+        let stale_moves = slp_parser::compute_staled_moves(
+            &frames[..=frame_idx],
+            &opponent_frames[..=frame_idx],
+        );
 
         let mut offscreen_damage_timer = 0;
         let mut i = frame_idx;

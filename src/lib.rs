@@ -1877,6 +1877,7 @@ pub fn construct_tm_replay_from_slp(
 
         let mut last_lstick_x_direction = slp_parser::Direction::Left;
         for f in frames.iter().rev() {
+            dbg!(f.left_stick_coords.x);
             if f.left_stick_coords.x < 0.0 {
                 last_lstick_x_direction = slp_parser::Direction::Left;
                 break;

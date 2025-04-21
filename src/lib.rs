@@ -1880,7 +1880,7 @@ pub fn construct_tm_replay_from_slp(
             if f.left_stick_coords.x < 0.0 {
                 last_lstick_x_direction = slp_parser::Direction::Left;
                 break;
-            } else if f.left_stick_coords.y > 0.0 {
+            } else if f.left_stick_coords.x > 0.0 {
                 last_lstick_x_direction = slp_parser::Direction::Right;
                 break;
             }

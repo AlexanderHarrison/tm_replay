@@ -282,6 +282,7 @@ pub struct CharacterState {
     pub held: u16,
     pub prev_held: u16,
     pub trigger: f32,
+    pub last_lstick_x_direction: slp_parser::Direction,
     pub input_timers: InputTimers,
 }
 
@@ -644,6 +645,7 @@ impl Default for CharacterState {
             state_speed: 1.0,
             state_blend: 0.0,
             x_rotn_rot: [0.0, 0.0, 0.0, 0.0],
+            last_lstick_x_direction: slp_parser::Direction::Left,
             last_ground_idx: 0,
         }
     }
@@ -1401,6 +1403,12 @@ pub fn construct_tm_replay(
         ft_state[flags_offset..][12] = st.state_flags[3];
         ft_state[flags_offset..][15] = st.state_flags[4];
 
+        ft_state[flags_offset..][24] &= !1;         
+        ft_state[flags_offset..][24] |= match st.last_lstick_x_direction {
+            slp_parser::Direction::Left => 0,
+            slp_parser::Direction::Right => 1,
+        };
+
         // multijump flag
         if matches!(
             st.character.character(), 
@@ -1867,6 +1875,17 @@ pub fn construct_tm_replay_from_slp(
             }
         }
 
+        let mut last_lstick_x_direction = slp_parser::Direction::Left;
+        for f in frames.iter().rev() {
+            if f.left_stick_coords.x < 0.0 {
+                last_lstick_x_direction = slp_parser::Direction::Left;
+                break;
+            } else if f.left_stick_coords.y > 0.0 {
+                last_lstick_x_direction = slp_parser::Direction::Right;
+                break;
+            }
+        }
+
         CharacterState {
             // respect zelda/sheik transformation
             character: slp_parser::CharacterColour::from_character_and_colour(
@@ -1901,6 +1920,7 @@ pub fn construct_tm_replay_from_slp(
             cstick: vector_to_arr(frame.right_stick_coords),
             held: frame.buttons_mask,
             trigger: frame.analog_trigger_value,
+            last_lstick_x_direction,
             input_timers,
 
             // state_blend, x_rotn_rot, anim_velocity

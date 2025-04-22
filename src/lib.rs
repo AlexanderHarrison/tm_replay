@@ -33,7 +33,7 @@ pub struct RecordingMenuSettings {
 
 fn jump_count(c: slp_parser::Character) -> u8 {
     match c {
-        slp_parser::Character::Jigglypuff | slp_parser::Character::Kirby => 5,
+        slp_parser::Character::Jigglypuff | slp_parser::Character::Kirby => 6,
         _ => 2,
     }
 }

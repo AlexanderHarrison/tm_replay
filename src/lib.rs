@@ -1440,8 +1440,8 @@ pub fn construct_tm_replay(
         ft_state[char_state_var_offset..][0..72].copy_from_slice(&st.char_state_var);
         ft_state[subaction_flags_offset..][0..16].copy_from_slice(&st.subaction_flags);
         
-        ft_state[jump_offset..][0] = jump_count(st.character.character()) - st.jumps_remaining;
-
+        ft_state[jump_offset..][0] = jump_count(st.character.character())- st.jumps_remaining;
+        
         // callbacks (struct cb) ------------------------------
 
         let fns_idx = (st.state.as_u16() as usize) * 0x20;
@@ -1789,6 +1789,20 @@ pub fn construct_tm_replay_from_slp(
             )) => {
                 if frame.anim_frame >= 10.0 { subaction_flags[3] = 1; }
             }
+            
+            slp_parser::ActionState::Special(
+                slp_parser::SpecialActionState::Jigglypuff(
+                    slp_parser::SpecialActionStateJigglypuff::Jump2
+                    | slp_parser::SpecialActionStateJigglypuff::Jump3
+                    | slp_parser::SpecialActionStateJigglypuff::Jump4
+                    | slp_parser::SpecialActionStateJigglypuff::Jump5
+                ) | slp_parser::SpecialActionState::Kirby(
+                    slp_parser::SpecialActionStateKirby::Jump2
+                    | slp_parser::SpecialActionStateKirby::Jump3
+                    | slp_parser::SpecialActionStateKirby::Jump4
+                    | slp_parser::SpecialActionStateKirby::Jump5
+                )
+            ) => subaction_flags[3] = if frame.anim_frame >= 28.0 { 1 } else { 0 },
 
             slp_parser::ActionState::Special(slp_parser::SpecialActionState::Peach(
                 slp_parser::SpecialActionStatePeach::Float

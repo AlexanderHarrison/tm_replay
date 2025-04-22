@@ -33,7 +33,7 @@ pub struct RecordingMenuSettings {
 
 fn jump_count(c: slp_parser::Character) -> u8 {
     match c {
-        slp_parser::Character::Jigglypuff | slp_parser::Character::Kirby => 6,
+        slp_parser::Character::Jigglypuff | slp_parser::Character::Kirby => 5,
         _ => 2,
     }
 }
@@ -1439,7 +1439,12 @@ pub fn construct_tm_replay(
         ft_state[char_fighter_var_offset..][0..208].copy_from_slice(&st.char_fighter_var);
         ft_state[char_state_var_offset..][0..72].copy_from_slice(&st.char_state_var);
         ft_state[subaction_flags_offset..][0..16].copy_from_slice(&st.subaction_flags);
-
+        
+        dbg!(
+            st.character.character(),
+            jump_count(st.character.character()),
+            st.jumps_remaining
+        );
         ft_state[jump_offset..][0] = jump_count(st.character.character()) - st.jumps_remaining;
 
         // callbacks (struct cb) ------------------------------

@@ -1440,11 +1440,6 @@ pub fn construct_tm_replay(
         ft_state[char_state_var_offset..][0..72].copy_from_slice(&st.char_state_var);
         ft_state[subaction_flags_offset..][0..16].copy_from_slice(&st.subaction_flags);
         
-        dbg!(
-            st.character.character(),
-            jump_count(st.character.character()),
-            st.jumps_remaining
-        );
         ft_state[jump_offset..][0] = jump_count(st.character.character()) - st.jumps_remaining;
 
         // callbacks (struct cb) ------------------------------

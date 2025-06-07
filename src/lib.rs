@@ -156,20 +156,7 @@ pub struct RecordingState {
 impl RecordingState {
     // offsets zeroed but not written
     fn write_header(&self, b: &mut Vec<u8>) {
-        // We swap zelda and shiek to work around bugs in Unclepunch.
-        // This is somehow the only way to get the correct character on hmn.
-        // Zelda on cpu always turns into sheik for some reason.
-        //
-        // The default savestate match init was generated with two sheiks on FD.
-        // Other character combinations tend to crash with zelda and sheik 
-        // or have the unused transformation tpose in the centre
-        // This combination doesn't seem to have these issues, but it prevents using zelda on cpu.
-        let char_hmn = match self.hmn_state.character.character() {
-            slp_parser::Character::Zelda => slp_parser::Character::Sheik,
-            slp_parser::Character::Sheik => slp_parser::Character::Zelda,
-            c => c,
-        }.to_u8_external().unwrap();
-
+        let char_hmn = self.hmn_state.character.character().to_u8_external().unwrap();
         let costume_hmn = self.hmn_state.character.costume_idx();
         let char_cpu = self.cpu_state.character.character().to_u8_external().unwrap();
         let costume_cpu = self.cpu_state.character.costume_idx();

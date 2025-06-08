@@ -61,6 +61,7 @@ fn run() -> Result<(), String> {
     let mut num_frames = 360;
     let mut output_file = String::from("new_recording.gci");
     let mut name = String::from("new_recording");
+    let mut flags = 0;
 
     let mut i = 1;
     while i < args.len() {
@@ -70,6 +71,7 @@ fn run() -> Result<(), String> {
             "-n" | "--num-frames" => num_frames = parse_num(&args, &mut i)?,
             "-o" | "--output-file" => output_file = parse_str(&args, &mut i)?,
             "-m" | "--name" => name = parse_str(&args, &mut i)?,
+            "-sw" | "--swap-sheik-zelda" => flags |= tm_replay::replay_flags::SWAP_SHEIK_ZELDA,
             "-h" | "--help" => {
                 print!("{}", USAGE);
                 return Ok(());
@@ -77,7 +79,7 @@ fn run() -> Result<(), String> {
             err => return Err(format!("Error: Unknown argument '{}'", err).into())
         }
     }
-
+    
     let file = match file {
         Some(s) => s,
         None => return Err("Error: '--slp-file' argument is required".into()),
@@ -93,7 +95,7 @@ fn run() -> Result<(), String> {
         Err(e) => return Err(format!("Error: failed to parse slp file: {}", e).into()),
     };
 
-    match construct_tm_replay_from_slp(&game, HumanPort::HumanLowPort, start_frame, num_frames, &name) {
+    match construct_tm_replay_from_slp(&game, HumanPort::HumanLowPort, start_frame, num_frames, &name, flags) {
         Ok(savestate) => {
             std::fs::write(&output_file, &savestate)
                 .map_err(|e| format!("Could not write output file '{}': {}", &output_file, e))?;

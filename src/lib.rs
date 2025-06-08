@@ -155,8 +155,23 @@ pub struct RecordingState {
 
 impl RecordingState {
     // offsets zeroed but not written
-    fn write_header(&self, b: &mut Vec<u8>) {
-        let char_hmn = self.hmn_state.character.character().to_u8_external().unwrap();
+    fn write_header(&self, b: &mut Vec<u8>, swap_shiek_zelda: bool) {
+        let char_hmn = if swap_shiek_zelda {
+            // We swap zelda and shiek to work around bugs in Unclepunch prior to TM-CE v1.3.
+            //
+            // The default savestate match init was generated with two sheiks on FD.
+            // Other character combinations tend to crash with zelda and sheik
+            // or have the unused transformation tpose in the centre
+            // This combination doesn't seem to have these issues, but it prevents using zelda on cpu.
+            match self.hmn_state.character.character() {
+                slp_parser::Character::Zelda => slp_parser::Character::Sheik,
+                slp_parser::Character::Sheik => slp_parser::Character::Zelda,
+                c => c,
+            }.to_u8_external().unwrap()
+        } else {
+            self.hmn_state.character.character().to_u8_external().unwrap()
+        };
+
         let costume_hmn = self.hmn_state.character.costume_idx();
         let char_cpu = self.cpu_state.character.character().to_u8_external().unwrap();
         let costume_cpu = self.cpu_state.character.costume_idx();
@@ -1137,6 +1152,7 @@ pub fn construct_tm_replay_from_replay_buffer(
 pub fn construct_tm_replay(
     state: &RecordingState, 
     inputs: &InputRecordings,
+    flags: ReplayFlags,
 ) -> Result<Vec<u8>, ReplayCreationError> {
     if state.cpu_state.character.character() == slp_parser::Character::Zelda { 
         return Err(ReplayCreationError::ZeldaOnCpu) 
@@ -1153,7 +1169,7 @@ pub fn construct_tm_replay(
     // buffer created by unclepunch's tm code
     let mut bytes = Vec::with_capacity(8192 * 8);
 
-    state.write_header(&mut bytes);
+    state.write_header(&mut bytes, flags & replay_flags::SWAP_SHEIK_ZELDA != 0);
 
     //let mut image = include_bytes!("/home/alex/Downloads/test_image_rgb565.bin");
     //let mut image = [0u8; 2*96*72];
@@ -1537,6 +1553,13 @@ pub enum HumanPort {
     HumanHighPort,
 }
 
+pub type ReplayFlags = u64;
+pub mod replay_flags {
+    use super::ReplayFlags;
+    pub const SWAP_SHEIK_ZELDA: ReplayFlags = 1 << 0;
+}
+
+
 /// Construct TM replay from slp file.
 ///
 /// Returns GCI file bytes.
@@ -1557,13 +1580,14 @@ pub fn construct_tm_replay_from_slp(
     frame: usize,
     duration: usize,
     name: &str,
+    flags: ReplayFlags,
 ) -> Result<Vec<u8>, ReplayCreationError> {
     let major = game.info.version_major;
     let minor = game.info.version_minor;
     if major < MIN_VERSION_MAJOR || (major == MIN_VERSION_MAJOR && minor < MIN_VERSION_MINOR) {
         return Err(ReplayCreationError::OutdatedReplay);
     }
-
+    
     let mut frame = frame;
     let mut duration = duration;
 
@@ -2002,6 +2026,7 @@ pub fn construct_tm_replay_from_slp(
                 Some(&inputs_over_frames(&cpu_frames[inputs_range.clone()])),
                 None, None, None, None, None
             ],
-        }
+        },
+        flags
     )
 }

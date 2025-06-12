@@ -1641,7 +1641,6 @@ pub fn construct_tm_replay_from_slp(
         let state_num = f.state.as_u16() as usize;
         if hitboxes::ATTACK_RANGE_START <= state_num && state_num < hitboxes::ATTACK_RANGE_END {
             let hitbox_range = &hitboxes::ATTACK_HITBOXES[f.character as usize][state_num - hitboxes::ATTACK_RANGE_START];
-            dbg!(f.character, state_num, hitbox_range);
             if hitbox_range.contains(&(f.anim_frame as u32)) {
                 return false;
             }

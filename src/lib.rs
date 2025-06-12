@@ -1422,6 +1422,13 @@ pub fn construct_tm_replay(
         } else {
             ft_state[flags_offset..][18] &= !0x40;
         }
+        
+        // cargo throw flag ?
+        if st.character.character() == slp_parser::Character::DonkeyKong {
+            ft_state[flags_offset..][18] |= 0x80;
+        } else {
+            ft_state[flags_offset..][18] &= !0x80;
+        }
 
         // walljump flag
         if matches!(

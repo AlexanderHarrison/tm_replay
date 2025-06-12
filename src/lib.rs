@@ -1,6 +1,7 @@
 // pub mod gen;
 mod compress;
 mod autocancel;
+mod hitboxes;
 
 pub const MIN_VERSION_MAJOR: u8 = 3;
 pub const MIN_VERSION_MINOR: u8 = 16;
@@ -1614,7 +1615,6 @@ pub fn construct_tm_replay_from_slp(
 
     // search backwards for a good frame to export -------------------------
 
-    // max number of frames to search back
     fn good_frame(f: &slp_parser::Frame) -> bool {
         use slp_parser::{ActionState, StandardActionState::*};
 
@@ -1637,7 +1637,15 @@ pub fn construct_tm_replay_from_slp(
         )) {
             return false;
         }
-
+        
+        let state_num = f.state_num as usize;
+        if hitboxes::ATTACK_RANGE_START <= state_num && state_num < hitboxes::ATTACK_RANGE_END {
+            let hitbox_range = &hitboxes::ATTACK_HITBOXES[f.character as usize][state_num];
+            if hitbox_range.contains(&(f.anim_frame as u32)) {
+                return false;
+            }
+        } 
+        
         true
     }
 

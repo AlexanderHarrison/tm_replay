@@ -2,6 +2,7 @@
 mod compress;
 mod autocancel;
 mod hitboxes;
+mod ecb_data;
 
 pub const MIN_VERSION_MAJOR: u8 = 3;
 pub const MIN_VERSION_MINOR: u8 = 16;
@@ -1362,14 +1363,18 @@ pub fn construct_tm_replay(
         ft_state[collision_offset..][44..48].copy_from_slice(&st.position[1].to_be_bytes());
         ft_state[collision_offset..][48..52].copy_from_slice(&st.position[2].to_be_bytes());
 
+        let internal_kind = st.character.character().to_u8_internal() as usize;
+        let (cliffgrab_width, cliffgrab_y_offset, cliffgrab_height) = ecb_data::ECB_DATA[internal_kind];
+        ft_state[collision_offset..][0x54..][..4].copy_from_slice(&cliffgrab_width.to_be_bytes());
+        ft_state[collision_offset..][0x58..][..4].copy_from_slice(&cliffgrab_y_offset.to_be_bytes());
+        ft_state[collision_offset..][0x5C..][..4].copy_from_slice(&cliffgrab_height.to_be_bytes());
+
         if st.airborne {
             // if the character is low enough, then the ecb in the air will be below the stage and
             // the character will phase through the stage.
             // It's almost never lower than 4.0 (probably)
             ft_state[collision_offset..][176..180].copy_from_slice(&(4.0f32).to_be_bytes());
         }
-
-        ft_state[collision_offset..][332..336].copy_from_slice(&st.last_ground_idx.to_be_bytes());
 
         // camera data (CameraBox) -------------------------------------
         

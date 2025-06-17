@@ -1560,7 +1560,7 @@ pub fn construct_tm_replay(
     construct_tm_replay_from_replay_buffer(state.time, &state.filename, &bytes)
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum HumanPort {
     HumanLowPort,
     HumanHighPort,

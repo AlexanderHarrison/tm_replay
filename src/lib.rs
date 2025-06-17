@@ -2,7 +2,7 @@
 mod compress;
 mod autocancel;
 mod hitboxes;
-mod ecb_data;
+mod char_data;
 
 pub const MIN_VERSION_MAJOR: u8 = 3;
 pub const MIN_VERSION_MINOR: u8 = 16;
@@ -1245,6 +1245,7 @@ pub fn construct_tm_replay(
         let char_state_var_offset = 3592;
         let subaction_flags_offset = 3664;
         let dmg_offset = 3680;
+        let grab_offset = 3988;
         let jump_offset = 4048;
 
         // state, direction, anim frame, anim speed, anim blend
@@ -1364,7 +1365,7 @@ pub fn construct_tm_replay(
         ft_state[collision_offset..][48..52].copy_from_slice(&st.position[2].to_be_bytes());
 
         let internal_kind = st.character.character().to_u8_internal() as usize;
-        let (cliffgrab_width, cliffgrab_y_offset, cliffgrab_height) = ecb_data::ECB_DATA[internal_kind];
+        let (cliffgrab_width, cliffgrab_y_offset, cliffgrab_height) = char_data::CLIFFGRAB[internal_kind];
         ft_state[collision_offset..][0x54..][..4].copy_from_slice(&cliffgrab_width.to_be_bytes());
         ft_state[collision_offset..][0x58..][..4].copy_from_slice(&cliffgrab_y_offset.to_be_bytes());
         ft_state[collision_offset..][0x5C..][..4].copy_from_slice(&cliffgrab_height.to_be_bytes());
@@ -1455,7 +1456,16 @@ pub fn construct_tm_replay(
         ft_state[char_fighter_var_offset..][0..208].copy_from_slice(&st.char_fighter_var);
         ft_state[char_state_var_offset..][0..72].copy_from_slice(&st.char_state_var);
         ft_state[subaction_flags_offset..][0..16].copy_from_slice(&st.subaction_flags);
+
+        // struct grab ----------------------------------------
+
+        let internal_kind = st.character.character().to_u8_internal() as usize;
+        let (grab_release_x, grab_release_y) = char_data::GRAB_RELEASE_POS[internal_kind];
+        ft_state[grab_offset..][0x28..][..4].copy_from_slice(&grab_release_x.to_be_bytes());
+        ft_state[grab_offset..][0x2C..][..4].copy_from_slice(&grab_release_y.to_be_bytes());
         
+        // struct jump ----------------------------------------
+
         ft_state[jump_offset..][0] = jump_count(st.character.character())- st.jumps_remaining;
         
         // callbacks (struct cb) ------------------------------

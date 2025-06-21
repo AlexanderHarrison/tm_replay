@@ -1363,7 +1363,7 @@ pub fn construct_tm_replay(
         ft_state[collision_offset..][40..44].copy_from_slice(&st.position[0].to_be_bytes());
         ft_state[collision_offset..][44..48].copy_from_slice(&st.position[1].to_be_bytes());
         ft_state[collision_offset..][48..52].copy_from_slice(&st.position[2].to_be_bytes());
-
+        
         let internal_kind = st.character.character().to_u8_internal() as usize;
         let (cliffgrab_width, cliffgrab_y_offset, cliffgrab_height) = char_data::CLIFFGRAB[internal_kind];
         ft_state[collision_offset..][0x54..][..4].copy_from_slice(&cliffgrab_width.to_be_bytes());
@@ -1376,6 +1376,8 @@ pub fn construct_tm_replay(
             // It's almost never lower than 4.0 (probably)
             ft_state[collision_offset..][176..180].copy_from_slice(&(4.0f32).to_be_bytes());
         }
+        
+        ft_state[collision_offset..][0x14c..][..4].copy_from_slice(&st.last_ground_idx.to_be_bytes());
 
         // camera data (CameraBox) -------------------------------------
         

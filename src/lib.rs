@@ -1371,7 +1371,7 @@ pub fn construct_tm_replay(
         ft_state[collision_offset..][0x5C..][..4].copy_from_slice(&cliffgrab_height.to_be_bytes());
 
         if st.airborne {
-            if st.self_velocity.y > 0.0 {
+            if st.self_velocity[1] > 0.0 {
                 ft_state[collision_offset..][176..180].copy_from_slice(&(0.0f32).to_be_bytes());
             } else {
         

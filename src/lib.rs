@@ -1371,15 +1371,16 @@ pub fn construct_tm_replay(
         ft_state[collision_offset..][0x5C..][..4].copy_from_slice(&cliffgrab_height.to_be_bytes());
 
         if st.airborne {
-            if st.self_velocity[1] > 0.0 {
-                ft_state[collision_offset..][176..180].copy_from_slice(&(0.0f32).to_be_bytes());
+            let ecb_bottom: f32 = if st.self_velocity[1] > 0.0 {
+                // if we are rising, then we want to prevent aerial interrupts,
+                // so we set the ecb bottom to be very low.
+                0.0
             } else {
-        
-            // if the character is low enough, then the ecb in the air will be below the stage and
-            // the character will phase through the stage.
-            // It's almost never lower than 4.0 (probably)
-            ft_state[collision_offset..][176..180].copy_from_slice(&(4.0f32).to_be_bytes());
-            }
+                // if we are falling, then we want to prevent clipping through the ground,
+                // so we set the ecb bottom to be very high.
+                4.0
+            };
+            ft_state[collision_offset..][0xB0..][..4].copy_from_slice(&ecb_bottom.to_be_bytes());
         }
         
         ft_state[collision_offset..][0x14c..][..4].copy_from_slice(&st.last_ground_idx.to_be_bytes());

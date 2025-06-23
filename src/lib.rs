@@ -438,7 +438,7 @@ impl InputTimers {
         }
 
         if frame.analog_trigger_value >= 0.25 {
-            if frame.analog_trigger_value >= 0.25 {
+            if frame_prev.analog_trigger_value >= 0.25 {
                 self.timer_trigger_analog += 1;
                 if self.timer_trigger_analog > 0xFE {
                     self.timer_trigger_analog = 0xFE;
@@ -1918,17 +1918,23 @@ pub fn construct_tm_replay_from_slp(
 
         let mut input_timers = InputTimers::default();
         if frame_idx != 0 {
-            // 60 frames to comput timers should be enough.
-            let mut min_frame = frame_idx.saturating_sub(60) + 1;
-
-            for i in min_frame..=frame_idx {
-                if frames[i].state.broad_state() == slp_parser::BroadState::Standard(slp_parser::StandardBroadState::Dead) {
-                    min_frame = i;
-                }
-            }
-
+            let min_frame = frame_idx.saturating_sub(256) + 1;
             for i in min_frame..=frame_idx {
                 input_timers.advance(&frames[i], &frames[i-1]);
+                
+                // 80097ab8 - timer_a and timer_b are reset on missed tech
+                if frames[i].anim_frame == 0.0
+                    && matches!(
+                        frames[i].state,
+                        slp_parser::ActionState::Standard(
+                            slp_parser::StandardActionState::DownBoundU
+                            | slp_parser::StandardActionState::DownBoundD
+                        )
+                    )
+                {
+                    input_timers.timer_a = 0xFF;
+                    input_timers.timer_b = 0xFF;
+                }
             }
         }
 

@@ -1733,6 +1733,8 @@ pub fn construct_tm_replay_from_slp(
                 }
             }).collect();
         
+        println!("{frame_i}..83");
+        
         // characters will start moving on frame 84
         for i in frame_i..83 {
             if i >= frames.len() { break; }

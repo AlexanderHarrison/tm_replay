@@ -1719,8 +1719,8 @@ pub fn construct_tm_replay_from_slp(
     let mut filename = [0u8; 31];
     filename[..name.len()].copy_from_slice(name.as_bytes());
 
-    fn inputs_over_frames(frames: &[slp_parser::Frame]) -> Vec<Input> {
-        frames
+    fn inputs_over_frames(frames: &[slp_parser::Frame], frame_i: usize) -> Vec<Input> {
+        let mut inputs: Vec<Input> = frames
             .iter()
             .map(|f| {
                 Input {
@@ -1731,7 +1731,14 @@ pub fn construct_tm_replay_from_slp(
                     cstick_y: (f.right_stick_coords.y * 80.0) as i8,
                     trigger: (f.analog_trigger_value * 140.0) as u8,
                 }
-            }).collect()
+            }).collect();
+        
+        // characters will start moving on frame 84
+        for i in frame_i..83 {
+            inputs[i] = Input::NONE;
+        }
+        
+        inputs
     }
 
     fn state(
@@ -2066,11 +2073,11 @@ pub fn construct_tm_replay_from_slp(
         },
         &InputRecordings {
             hmn_slots: [
-                Some(&inputs_over_frames(&hmn_frames[inputs_range.clone()])),
+                Some(&inputs_over_frames(&hmn_frames[inputs_range.clone()], inputs_range.start)),
                 None, None, None, None, None
             ],
             cpu_slots: [
-                Some(&inputs_over_frames(&cpu_frames[inputs_range.clone()])),
+                Some(&inputs_over_frames(&cpu_frames[inputs_range.clone()], inputs_range.start)),
                 None, None, None, None, None
             ],
         },

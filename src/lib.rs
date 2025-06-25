@@ -219,7 +219,7 @@ impl RecordingState {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SmashAttackState {
     None = 0,
     Charge = 2,
@@ -2029,6 +2029,16 @@ pub fn construct_tm_replay_from_slp(
                     smash_attack.state = SmashAttackState::Release;
                 }
             }
+            
+            if i+1 < frames.len() {
+                let a = &frames[i];
+                let b = &frames[i+1];
+                if smash_attack.state == SmashAttackState::None
+                    && a.state_num == b.state_num && a.anim_frame == b.anim_frame
+                {
+                    smash_attack.state = SmashAttackState::Charge;
+                }
+            } 
         }
 
         CharacterState {

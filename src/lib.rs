@@ -1773,7 +1773,7 @@ pub fn construct_tm_replay_from_slp(
         // not recorded in slp - manually calculated
         let state_speed;
         match (prev_frame, next_frame) {
-            (Some(p), _) if p.state == frame.state && p.anim_frame < frame.anim_frame => {
+            (Some(p), _) if p.state == frame.state && p.anim_frame <= frame.anim_frame => {
                 state_speed = frame.anim_frame - p.anim_frame;
             }
 
@@ -1784,7 +1784,6 @@ pub fn construct_tm_replay_from_slp(
             // nothing we can do here
             _ => state_speed = 1.0,
         }
-        dbg!(state_speed);
 
         let mut char_fighter_var = [0u8; 208];
 

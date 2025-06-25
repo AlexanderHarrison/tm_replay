@@ -1733,12 +1733,12 @@ pub fn construct_tm_replay_from_slp(
                 }
             }).collect();
         
-        println!("{frame_i}..83");
-        
         // characters will start moving on frame 84
-        for i in frame_i..83 {
-            if i >= frames.len() { break; }
-            inputs[i] = Input::NONE;
+        if frame_i < 83 {
+            for i in 0..(83 - frame_i) {
+                if i >= inputs.len() { break; }
+                inputs[i] = Input::NONE;
+            }
         }
         
         inputs

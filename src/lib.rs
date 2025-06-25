@@ -1784,6 +1784,7 @@ pub fn construct_tm_replay_from_slp(
             // nothing we can do here
             _ => state_speed = 1.0,
         }
+        dbg!(state_speed);
 
         let mut char_fighter_var = [0u8; 208];
 

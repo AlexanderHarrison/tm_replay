@@ -1735,6 +1735,7 @@ pub fn construct_tm_replay_from_slp(
         
         // characters will start moving on frame 84
         for i in frame_i..83 {
+            if i >= frames.len() { break; }
             inputs[i] = Input::NONE;
         }
         

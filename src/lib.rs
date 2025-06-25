@@ -1664,6 +1664,9 @@ pub fn construct_tm_replay_from_slp(
                 | CaptureKirby | CaptureWaitKirby | ThrownKirbyStar | ThrownCopyStar | ThrownKirby
                 | BarrelWait | Bury | BuryWait | BuryJump
                 | DamageSong | DamageSongWait | DamageSongRv | DamageBind
+                | DeadDown | DeadLeft | DeadRight | DeadUp | DeadUpStar | DeadUpStarIce | DeadUpFall
+                | DeadUpFallHitCamera | DeadUpFallHitCameraFlat | DeadUpFallIce | DeadUpFallHitCameraIce
+                | Rebirth | RebirthWait
         )) {
             return false;
         }

@@ -219,6 +219,26 @@ impl RecordingState {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum SmashAttackState {
+    None = 0,
+    Charge = 2,
+    Release = 3,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct SmashAttack {
+    pub state: SmashAttackState,
+    pub held_frames: f32,
+}
+
+impl SmashAttack {
+    pub const NONE: SmashAttack = SmashAttack {
+        state: SmashAttackState::None,
+        held_frames: 0.0,
+    };
+}
+
 #[derive(Clone, Debug)]
 /// Initial state for a character.
 ///
@@ -288,6 +308,7 @@ pub struct CharacterState {
     pub trigger: f32,
     pub last_lstick_x_direction: slp_parser::Direction,
     pub input_timers: InputTimers,
+    pub smash_attack: SmashAttack,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -651,6 +672,7 @@ impl Default for CharacterState {
             x_rotn_rot: [0.0, 0.0, 0.0, 0.0],
             last_lstick_x_direction: slp_parser::Direction::Left,
             last_ground_idx: 0,
+            smash_attack: SmashAttack::NONE,
         }
     }
 }
@@ -1247,6 +1269,7 @@ pub fn construct_tm_replay(
         let dmg_offset = 3680;
         let grab_offset = 3988;
         let jump_offset = 4048;
+        let smash_offset = 4052;
 
         // state, direction, anim frame, anim speed, anim blend
         let state_offset = 4;
@@ -1475,6 +1498,15 @@ pub fn construct_tm_replay(
         // struct jump ----------------------------------------
 
         ft_state[jump_offset..][0] = jump_count(st.character.character())- st.jumps_remaining;
+        
+        // struct smash ----------------------------------------
+        
+        ft_state[smash_offset..][0..][..4].copy_from_slice(&(st.smash_attack.state as u32).to_be_bytes());
+        ft_state[smash_offset..][4..][..4].copy_from_slice(&st.smash_attack.held_frames.to_be_bytes());
+        ft_state[smash_offset..][8..][..4].copy_from_slice(&(60f32).to_be_bytes());
+        ft_state[smash_offset..][12..][..4].copy_from_slice(&(1.367f32).to_be_bytes());
+        ft_state[smash_offset..][16..][..4].copy_from_slice(&(1.0f32).to_be_bytes());
+        ft_state[smash_offset..][36..][..4].copy_from_slice(&(1.0f32).to_be_bytes());
         
         // callbacks (struct cb) ------------------------------
 
@@ -1967,6 +1999,37 @@ pub fn construct_tm_replay_from_slp(
                 break;
             }
         }
+        
+        let mut smash_attack = SmashAttack::NONE;
+        if matches!(
+            frames[i].state,
+            slp_parser::ActionState::Standard(
+                slp_parser::StandardActionState::AttackS4Hi
+                | slp_parser::StandardActionState::AttackS4HiS
+                | slp_parser::StandardActionState::AttackS4S
+                | slp_parser::StandardActionState::AttackS4LwS
+                | slp_parser::StandardActionState::AttackS4Lw
+                | slp_parser::StandardActionState::AttackHi4
+                | slp_parser::StandardActionState::AttackLw4
+            )
+        ) {
+            for fs in frames[..=i].windows(2).rev() {
+                let a = &fs[0];
+                let b = &fs[1];
+                if a.state_num != b.state_num { break; }
+                if a.anim_frame == b.anim_frame { smash_attack.held_frames += 1.0; }
+            }
+            
+            if i != 0 {
+                let a = &frames[i-1];
+                let b = &frames[i];
+                if a.state_num == b.state_num && a.anim_frame == b.anim_frame {
+                    smash_attack.state = SmashAttackState::Charge;
+                } else if smash_attack.held_frames != 0.0 {
+                    smash_attack.state = SmashAttackState::Release;
+                }
+            }
+        }
 
         CharacterState {
             // respect zelda/sheik transformation
@@ -2004,6 +2067,7 @@ pub fn construct_tm_replay_from_slp(
             trigger: frame.analog_trigger_value,
             last_lstick_x_direction,
             input_timers,
+            smash_attack,
 
             // state_blend, x_rotn_rot, anim_velocity
             ..Default::default()

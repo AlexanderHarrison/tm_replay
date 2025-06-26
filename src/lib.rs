@@ -2037,11 +2037,9 @@ pub fn construct_tm_replay_from_slp(
                 let b = &frames[i+1];
                 if a.state_num == b.state_num && a.anim_frame == b.anim_frame {
                     smash_attack.state = SmashAttackState::Charge;
+                    state_speed = 0.0;
                 }
-                state_speed = 0.0;
             }
-            
-            dbg!(&smash_attack);
         }
 
         CharacterState {

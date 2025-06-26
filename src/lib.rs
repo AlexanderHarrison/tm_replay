@@ -2040,6 +2040,8 @@ pub fn construct_tm_replay_from_slp(
                 }
                 state_speed = 0.0;
             }
+            
+            dbg!(&smash_attack);
         }
 
         CharacterState {

@@ -1803,7 +1803,7 @@ pub fn construct_tm_replay_from_slp(
         }
 
         // not recorded in slp - manually calculated
-        let state_speed;
+        let mut state_speed;
         match (prev_frame, next_frame) {
             (Some(p), _) if p.state == frame.state && p.anim_frame <= frame.anim_frame => {
                 state_speed = frame.anim_frame - p.anim_frame;
@@ -2030,15 +2030,16 @@ pub fn construct_tm_replay_from_slp(
                 }
             }
             
+            // We need to special case the first charge frame.
+            // It's kinda weird.
             if i+1 < frames.len() {
                 let a = &frames[i];
                 let b = &frames[i+1];
-                if a.state_num == b.state_num && a.anim_frame == b.anim_frame
-                {
+                if a.state_num == b.state_num && a.anim_frame == b.anim_frame {
                     smash_attack.state = SmashAttackState::Charge;
                 }
+                state_speed = 0.0;
             }
-            dbg!(&smash_attack); 
         }
 
         CharacterState {

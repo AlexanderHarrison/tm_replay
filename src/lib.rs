@@ -126,6 +126,26 @@ impl RecordingTime {
 
 fn vector_to_arr(v: slp_parser::Vector) -> [f32; 2] { [v.x, v.y] }
 
+/// Recordings use the shift JIS encoding.
+/// This is only partially compatible with ascii.
+/// This returns true if and only if the ascii character
+/// is also a valid shift JIS character.
+///
+/// All alphanumeric characters are valid, the space character,
+/// and the `-,.!%^()` special characters.
+///
+/// While TM might technically support all shift JIS characters,
+/// name entry within TM only uses ascii characters,
+/// so we do not validate for shift JIS characters when importing,
+/// only characters that are both valid ascii AND shift JIS.
+pub fn valid_filename_char(c: char) -> bool {
+    match c {
+        c if c.is_ascii_alphanumeric() => true,
+        ' ' | '-' | ',' | '.' | '!' | '%' | '^' | '(' | ')' => true,
+        _ => false,
+    }
+}
+
 /// this is the format dolphin uses for GCI filenames.
 /// It's not necessary to name the recordings like this - any name will work.
 pub fn dolphin_gci_filename(time: RecordingTime) -> String {
@@ -1742,7 +1762,7 @@ pub fn construct_tm_replay_from_slp(
     }
 
     if name.len() >= 32 { return Err(ReplayCreationError::FilenameTooLong) }
-    if !name.is_ascii() { return Err(ReplayCreationError::FilenameNotASCII) }
+    if !name.chars().all(valid_filename_char) { return Err(ReplayCreationError::FilenameNotASCII) }
     if duration > 3600 { return Err(ReplayCreationError::DurationTooLong) }
 
     let info = &game.info;

@@ -1060,24 +1060,26 @@ fn decode_block(src: &mut [u8]) -> i32 {
 }
 
 // panic on invalid gci file.
-pub fn read_replay_buffer(gci_file: &mut [u8]) -> Vec<u8> {
-    let block_count = u16::from_be_bytes(gci_file[0x38..0x3A].try_into().unwrap()) as usize;
+pub fn read_replay_buffer(gci_file: &mut [u8]) -> Option<Vec<u8>> {
     let start = 0x1EB0;
+    if gci_file.len() < start + 400 { return None; }
+    let block_count = u16::from_be_bytes(gci_file[0x38..0x3A].try_into().unwrap()) as usize;
     let decoded_len = 400 - 32 + (block_count-1)*(BLOCK_SIZE - 32);
     let mut decoded = Vec::with_capacity(decoded_len);
 
-    assert!(decode_block(&mut gci_file[start..][..400]) == 0);
+    if decode_block(&mut gci_file[start..][..400]) != 0 { return None; };
 
     // skip checksum and metadata
     decoded.extend_from_slice(&gci_file[start+32..][..400-32]);
 
     for i in 1..block_count {
         let block_start = start + 400 + (i-1)*BLOCK_SIZE;
-        assert!(decode_block(&mut gci_file[block_start..][..BLOCK_SIZE]) == 0);
+        if gci_file.len() < block_start + BLOCK_SIZE { return None; }
+        if decode_block(&mut gci_file[block_start..][..BLOCK_SIZE]) != 0 { return None; };
         decoded.extend_from_slice(&gci_file[block_start+32..][..BLOCK_SIZE-32]);
     }
 
-    decoded
+    Some(decoded)
 }
 
 /// Overwrites the RecordingSave in a replay buffer. You probably don't want this.
@@ -2181,4 +2183,107 @@ pub fn construct_tm_replay_from_slp(
         },
         flags
     )
+}
+
+pub struct ReadReplayData {
+    pub pseudo_game: slp_parser::Game,
+}
+
+fn frame_from_ft_state(ft_state: &[u8], port_idx: u8) -> slp_parser::Frame {
+    fn read_f32(ft_state: &[u8], offset: usize) -> f32 {
+        f32::from_be_bytes(ft_state[offset..][..4].try_into().unwrap())
+    }
+    
+    fn read_u32(ft_state: &[u8], offset: usize) -> u32 {
+        u32::from_be_bytes(ft_state[offset..][..4].try_into().unwrap())
+    }
+
+    let ft_savestate_data_size = 4396;
+    let playerblock_offset = ft_savestate_data_size*2;
+    let state_offset = 4;
+    let phys_offset = 40;
+    let dmg_offset = 3680;
+    
+    let character = read_u32(ft_state, playerblock_offset + 4);
+    let character = slp_parser::Character::from_u8_external(character as u8).unwrap();
+        
+    let direction_f = read_f32(ft_state, state_offset + 4);
+    let direction = if direction_f == -1.0 { slp_parser::Direction::Left } else { slp_parser::Direction::Right };
+    
+    let pos_x = read_f32(ft_state, phys_offset + 60);
+    let pos_y = read_f32(ft_state, phys_offset + 64);
+    
+    let state_num = read_u32(ft_state, state_offset + 0) as u16;
+    let state = slp_parser::ActionState::from_u16(state_num, character).unwrap();
+    let anim_frame = read_f32(ft_state, state_offset + 8);
+    let percent = read_f32(ft_state, dmg_offset + 4) * 2.0; // percent is stored halved for some reason???
+    
+    slp_parser::Frame {
+        character,
+        port_idx,
+        is_follower: false,
+        direction,
+        position: slp_parser::Vector { x: pos_x, y: pos_y },
+        state,
+        state_num,
+        anim_frame,
+        percent,
+        
+        // Don't need to care about the rest for now
+        ..slp_parser::Frame::NULL
+    }
+}
+
+/// Construct a pseudo game from a gci replay.
+pub fn read_tm_replay(gci_bytes: &mut [u8]) -> Option<ReadReplayData> {
+    let replay_buffer = read_replay_buffer(gci_bytes)?;
+    let recording_offset = u32::from_be_bytes(replay_buffer[60..64].try_into().unwrap()) as usize;
+    let menu_offset = u32::from_be_bytes(replay_buffer[64..68].try_into().unwrap()) as usize;
+    
+    let char_hmn = slp_parser::Character::from_u8_external(replay_buffer[8])?;
+    let char_cpu = slp_parser::Character::from_u8_external(replay_buffer[10])?;
+    let char_hmn = slp_parser::CharacterColour::from_character_and_colour(char_hmn, replay_buffer[9])?;
+    let char_cpu = slp_parser::CharacterColour::from_character_and_colour(char_cpu, replay_buffer[11])?;
+
+    let recording_compressed_save = &replay_buffer[recording_offset..menu_offset];
+    let uncompressed_size = u32::from_be_bytes(recording_compressed_save[0..4].try_into().unwrap()) as usize;
+    let mut recording_save = vec![0u8; uncompressed_size + 257]; // pad a bit for compression algo
+    compress::lz77_decompress(recording_compressed_save, recording_save.as_mut_slice());
+    
+    let st_offset = 312; // savestate offset - skip MatchInit in RecordingSave
+    let ft_state_offset = 8+EVENT_DATASIZE; // FtState array offset - fields in Savestate;
+    let ft_state_size = 9016;
+    
+    let ft_state_hmn = &recording_save[st_offset+ft_state_offset..][..ft_state_size]; 
+    let ft_state_cpu = &recording_save[st_offset+ft_state_offset+ft_state_size..][..ft_state_size];
+    
+    let hmn_frame = frame_from_ft_state(ft_state_hmn, 0);
+    let cpu_frame = frame_from_ft_state(ft_state_cpu, 1);
+    
+    let stage_external = u16::from_be_bytes(recording_save[0xE..][..2].try_into().unwrap());
+    let stage = slp_parser::Stage::from_u16(stage_external)?;
+    
+    let pseudo_game = slp_parser::Game {
+        frame_count: 1,
+        frames: [Some(vec![hmn_frame].into()), Some(vec![cpu_frame].into()), None, None],
+        follower_frames: [None, None, None, None],
+        item_idx: Vec::new().into(),
+        items: Vec::new().into(),
+        stage_info: None,
+        info: slp_parser::GameInfo {
+            stage,
+            port_used: [true, true, false, false],
+            starting_character_colours: [Some(char_hmn), Some(char_cpu), None, None],
+            names: [[0; 31]; 4],
+            connect_codes: [[0; 10]; 4],
+            start_time: slp_parser::Time::NULL,
+            timer: 0,
+            duration: 1,
+            version_major: 3,
+            version_minor: 0,
+            version_patch: 0,
+        }
+    };
+    
+    Some(ReadReplayData { pseudo_game })
 }

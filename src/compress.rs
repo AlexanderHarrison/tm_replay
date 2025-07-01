@@ -73,7 +73,7 @@ pub fn lz77_compress(uncompressed_text: &[u8], uncompressed_size: u32, compresse
 }
 
 // converts from big endian
-pub fn _lz77_decompress(compressed_text: &[u8], uncompressed_text: &mut [u8]) -> usize {
+pub fn lz77_decompress(compressed_text: &[u8], uncompressed_text: &mut [u8]) -> usize {
     let uncompressed_size = u32::from_be_bytes(compressed_text[0..4].try_into().unwrap()) as usize;
     let pointer_length_width = compressed_text[4];
 

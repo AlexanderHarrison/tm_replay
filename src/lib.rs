@@ -2268,7 +2268,7 @@ pub fn read_tm_replay(gci_bytes: &mut [u8]) -> Option<ReadReplayData> {
         frame_count: 1,
         frames: [Some(vec![hmn_frame].into()), Some(vec![cpu_frame].into()), None, None],
         follower_frames: [None, None, None, None],
-        item_idx: Vec::new().into(),
+        item_idx: vec![0, 0].into(),
         items: Vec::new().into(),
         stage_info: None,
         info: slp_parser::GameInfo {

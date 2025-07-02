@@ -2187,6 +2187,7 @@ pub fn construct_tm_replay_from_slp(
 
 pub struct ReadReplayData {
     pub pseudo_game: slp_parser::Game,
+    pub name: String,
 }
 
 fn frame_from_ft_state(ft_state: &[u8], port_idx: u8) -> slp_parser::Frame {
@@ -2285,5 +2286,14 @@ pub fn read_tm_replay(gci_bytes: &mut [u8]) -> Option<ReadReplayData> {
         }
     };
     
-    Some(ReadReplayData { pseudo_game })
+    let mut name_bytes = [0u8; 0x21];
+    name_bytes[0..0x20].copy_from_slice(&gci_bytes[0x60..][..0x20]);
+    let name = std::ffi::CStr::from_bytes_until_nul(&name_bytes).ok()?
+        .to_str().ok()?
+        .to_string();
+    
+    Some(ReadReplayData {
+        pseudo_game,
+        name,
+    })
 }

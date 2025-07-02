@@ -78,16 +78,16 @@ pub fn lz77_decompress(compressed_text: &[u8], uncompressed_text: &mut [u8]) -> 
     let pointer_length_width = compressed_text[4];
 
     let mut compressed_pointer = 5;
-    let pointer_length_mask = (2 << pointer_length_width) - 1;
+    let pointer_length_mask = (1 << pointer_length_width) - 1;
 
     let mut coding_pos = 0usize;
     while coding_pos < uncompressed_size {
-        let input_pointer = u16::from_be_bytes(compressed_text[compressed_pointer..compressed_pointer+2].try_into().unwrap());
+        let input_pointer = u16::from_be_bytes(compressed_text[compressed_pointer..][..2].try_into().unwrap());
         compressed_pointer += 2;
         let pointer_pos = input_pointer >> pointer_length_width;
         let mut pointer_length = if pointer_pos != 0 { (input_pointer & pointer_length_mask) + 1 } else { 0 };
         if pointer_pos != 0 {
-            let mut pointer_offset = coding_pos;
+            let mut pointer_offset = coding_pos - pointer_pos as usize;
             while pointer_length > 0 {
                 uncompressed_text[coding_pos] = uncompressed_text[pointer_offset];
                 coding_pos += 1;

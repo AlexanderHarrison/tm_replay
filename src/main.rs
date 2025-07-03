@@ -91,7 +91,7 @@ fn run() -> Result<(), String> {
     };
 
     let game = match slp_parser::read_game(std::path::Path::new(&file)) {
-        Ok((game, _)) => game,
+        Ok(game) => game,
         Err(e) => return Err(format!("Error: failed to parse slp file: {}", e).into()),
     };
 

@@ -2280,10 +2280,12 @@ pub fn read_tm_replay(gci_bytes: &mut [u8]) -> Option<ReadReplayData> {
             start_time: slp_parser::Time::NULL,
             timer: 0,
             duration: 1,
+            has_notes: false,
             version_major: 3,
             version_minor: 0,
             version_patch: 0,
-        }
+        },
+        notes: slp_parser::Notes::NULL,
     };
     
     let mut name_bytes = [0u8; 0x21];

@@ -295,6 +295,9 @@ pub struct CharacterState {
 
     /// number of consecutive frames offscreen. Counts to 60 then the player takes damage.
     pub offscreen_damage_timer: u32,
+    
+    pub intang_ledge: u32,
+    pub intang_respawn: u32,
 
     /// Generic character state variables, used for special actions.
     ///
@@ -693,6 +696,8 @@ impl Default for CharacterState {
             last_lstick_x_direction: slp_parser::Direction::Left,
             last_ground_idx: 0,
             smash_attack: SmashAttack::NONE,
+            intang_ledge: 0,
+            intang_respawn: 0,
         }
     }
 }
@@ -1292,6 +1297,7 @@ pub fn construct_tm_replay(
         let grab_offset = 3988;
         let jump_offset = 4048;
         let smash_offset = 4052;
+        let hurt_offset = 4092;
 
         // state, direction, anim frame, anim speed, anim blend
         let state_offset = 4;
@@ -1529,6 +1535,20 @@ pub fn construct_tm_replay(
         ft_state[smash_offset..][12..][..4].copy_from_slice(&(1.367f32).to_be_bytes());
         ft_state[smash_offset..][16..][..4].copy_from_slice(&(1.0f32).to_be_bytes());
         ft_state[smash_offset..][36..][..4].copy_from_slice(&(1.0f32).to_be_bytes());
+        
+        // struct hurt ----------------------------------------
+        
+        let kind = if st.intang_ledge != 0 {
+            2u32
+        } else if st.intang_respawn != 0 {
+            1u32
+        } else {
+            0u32
+        };
+        
+        ft_state[hurt_offset..][4..][..4].copy_from_slice(&kind.to_be_bytes());
+        ft_state[hurt_offset..][8..][..4].copy_from_slice(&st.intang_ledge.to_be_bytes());
+        ft_state[hurt_offset..][12..][..4].copy_from_slice(&st.intang_respawn.to_be_bytes());
         
         // callbacks (struct cb) ------------------------------
 
@@ -2064,7 +2084,31 @@ pub fn construct_tm_replay_from_slp(
                 }
             }
         }
-
+        
+        let mut intang_ledge = 0;
+        for i in 1..31 {
+            if i > frame_idx { break; }
+            let f = &frames[frame_idx - i];
+            if f.state == slp_parser::ActionState::Standard(slp_parser::StandardActionState::CliffCatch) {
+                intang_ledge = 31 - i as u32;
+                break;
+            }
+        }
+        
+        let mut intang_respawn = 0;
+        for i in 1..121 {
+            if i > frame_idx { break; }
+            let f = &frames[frame_idx - i];
+            if matches!(
+                f.state,
+                slp_parser::ActionState::Standard(slp_parser::StandardActionState::Rebirth)
+                | slp_parser::ActionState::Standard(slp_parser::StandardActionState::RebirthWait)
+            ) {
+                intang_respawn = 121 - i as u32;
+                break;
+            }
+        }
+        
         CharacterState {
             // respect zelda/sheik transformation
             character: slp_parser::CharacterColour::from_character_and_colour(
@@ -2102,6 +2146,8 @@ pub fn construct_tm_replay_from_slp(
             last_lstick_x_direction,
             input_timers,
             smash_attack,
+            intang_ledge,
+            intang_respawn,
 
             // state_blend, x_rotn_rot, anim_velocity
             ..Default::default()

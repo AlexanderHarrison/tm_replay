@@ -507,7 +507,7 @@ impl InputTimers {
             self.timer_trigger_analog = 0xFE;
         }
 
-        let down = frame.buttons_mask;
+        let down = frame.buttons_mask & !frame_prev.buttons_mask;
         use slp_parser::buttons_mask as button;
 
         if down & button::A != 0 {

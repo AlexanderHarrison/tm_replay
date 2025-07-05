@@ -1972,6 +1972,28 @@ pub fn construct_tm_replay_from_slp(
             }
             _ => (),
         }
+        
+        if starting_char.character() == slp_parser::Character::Peach {
+            let mut has_float = 1u32;
+            for f in frames[..=frame_idx].iter().rev() {
+                if !f.is_airborne { break }
+                if matches!(
+                    f.state,
+                    slp_parser::ActionState::Special(slp_parser::SpecialActionState::Peach(
+                        slp_parser::SpecialActionStatePeach::Float
+                        | slp_parser::SpecialActionStatePeach::FloatNair
+                        | slp_parser::SpecialActionStatePeach::FloatFair
+                        | slp_parser::SpecialActionStatePeach::FloatBair
+                        | slp_parser::SpecialActionStatePeach::FloatUair
+                        | slp_parser::SpecialActionStatePeach::FloatDair
+                    ))
+                ) {
+                    has_float = 0;
+                    break;
+                }
+            };
+            char_fighter_var[0..4].copy_from_slice(&has_float.to_be_bytes());
+        }
 
         let frames_since_hit = match frame.state {
             slp_parser::ActionState::Standard(slp_parser::StandardActionState::DamageHi1        

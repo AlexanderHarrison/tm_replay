@@ -2017,9 +2017,10 @@ pub fn construct_tm_replay_from_slp(
             _ => -1 
         };
         
+        // TODO pass in followers
         let stale_moves = slp_parser::compute_staled_moves(
             &frames[..=frame_idx],
-            &opponent_frames[..=frame_idx],
+            &[&opponent_frames[..=frame_idx]],
         );
 
         let mut offscreen_damage_timer = 0;
